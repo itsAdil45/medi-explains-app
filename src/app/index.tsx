@@ -13,7 +13,7 @@ import {
 } from "lucide-react-native";
 import HomeNav from "../components/HomeNav";
 // import Footer from "../components/Footer";
-// import ContactSection from "../components/ContactSection";
+import ContactSection from "../components/ContactSection";
 
 const CAPABILITIES = [
   {
@@ -190,7 +190,7 @@ export default function Home() {
       <Text className="mx-auto mb-2 text-center text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
         Contact Us
       </Text>
-      {/* <ContactSection /> */}
+      <ContactSection />
 
       {/* <Footer /> */}
     </ScrollView>

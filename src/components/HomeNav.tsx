@@ -33,7 +33,7 @@ export default function HomeNav() {
         }}
       />
 
-      <Svg
+      {/* <Svg
         className="pointer-events-none absolute -right-36 -top-36 z-10 opacity-20"
         width={640}
         height={640}
@@ -42,7 +42,7 @@ export default function HomeNav() {
       >
         <Circle cx={320} cy={320} r={300} stroke="#4ab96a" strokeWidth={4.5} />
         <Circle cx={320} cy={320} r={220} stroke="#4ab96a" strokeWidth={4.5} />
-      </Svg>
+      </Svg> */}
 
       <View className="relative z-10 my-4 flex-col items-center gap-[45px] md:flex-row md:justify-between md:gap-0">
         <Pressable
