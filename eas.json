@@ -3,6 +3,7 @@
     "version": ">= 24.7.0",
     "appVersionSource": "remote"
   },
+
   "build": {
     "development": {
       "developmentClient": true,
@@ -11,10 +12,9 @@
     "preview": {
       "distribution": "internal"
     },
-    "production": {
-      "autoIncrement": true
-    }
+    "production": {}
   },
+
   "submit": {
     "production": {}
   }
