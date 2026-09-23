@@ -11,9 +11,9 @@ import {
   Eye,
   ArrowRight,
 } from "lucide-react-native";
-import HomeNav from "../components/HomeNav";
-// import Footer from "../components/Footer";
-import ContactSection from "../components/ContactSection";
+import HomeNav from "@/components/HomeNav";
+// import Footer from "@/components/Footer";
+import ContactSection from "@/components/ContactSection";
 
 const CAPABILITIES = [
   {
@@ -68,7 +68,7 @@ const STEPS = [
 
 // Bundle the hero video as a local asset. Swap the require() for a remote
 // URL string (e.g. "https://.../hero-bg.mp4") if you'd rather host it.
-const heroSource = require("../../assets/hero-bg.mp4");
+const heroSource = require("@/assets/hero-bg.mp4");
 
 export default function Home() {
   const router = useRouter();

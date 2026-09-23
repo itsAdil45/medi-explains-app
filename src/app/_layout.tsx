@@ -1,18 +1,31 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "react-native";
 import "../../global.css";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
-import AppTabs from "@/components/app-tabs";
+import { AuthProvider } from "@/api/auth";
 
 SplashScreen.preventAutoHideAsync();
 
-export default function TabLayout() {
+// Native equivalent of main.jsx's <BrowserRouter><AuthProvider><App /></...> -
+// expo-router's file-based Stack stands in for BrowserRouter/App's <Routes>,
+// so AuthProvider just needs to wrap it the same way. (AccessibilityProvider
+// from main.jsx isn't mimicked yet - out of scope until that context itself
+// is ported.)
+export default function RootLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      <AppTabs />
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen
+            name="phone-sign-in"
+            options={{ presentation: "modal", headerShown: false }}
+          />
+        </Stack>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
