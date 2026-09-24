@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { useLocalSearchParams, Redirect } from "expo-router";
 import { View, Text, ScrollView, ActivityIndicator } from "react-native";
-import * as FileSystem from "expo-file-system";
-import * as Sharing from "expo-sharing";
 
-import { api, getToken } from "@/api/client";
+import { api } from "@/api/client";
+import { downloadAuthedFile, sharePdf } from "@/api/download";
 import { useAuth } from "@/api/auth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,15 +11,15 @@ import { StatusBadge } from "@/components/ui/badge";
 import Recorder from "@/components/Recorder";
 import PipelineStepper from "@/components/consultation/PipelineStepper";
 import DoctorReview from "@/components/consultation/DoctorReview";
-// Not built yet - website's PatientSummaryView/NextVisitCard/etc. haven't
+import PatientSummaryView from "@/components/consultation/PatientSummaryView";
+// Not built yet - the website's NextVisitCard/ReportRequestCard/etc. haven't
 // been shared with us. Left commented so the shell below just needs these
-// four lines uncommented once they exist, matching how the imports read on
-// the website's ConsultationView.jsx.
+// lines uncommented once they exist, matching how the imports read on the
+// website's ConsultationView.jsx.
 // import NextVisitCard from "@/components/consultation/NextVisitCard";
 // import ReportRequestCard from "@/components/consultation/ReportRequestCard";
 // import ReportUploadCard from "@/components/consultation/ReportUploadCard";
 // import BillCard from "@/components/consultation/BillCard";
-// import PatientSummaryView from "@/components/consultation/PatientSummaryView";
 // import CrossCheckReview from "@/components/consultation/CrossCheckReview";
 
 const POLL_MS = 3500;
@@ -209,22 +208,12 @@ export default function ConsultationView() {
     );
   }
 
-  // Kept for when PatientSummaryView is wired back in below - it's the one
-  // that actually calls this.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Fetches the PDF with the auth header, then opens the OS share sheet so the
+  // patient can save or send it. Throws on failure and lets PatientSummaryView
+  // show the message inline - setErr here would replace this whole screen.
   async function downloadPdf() {
-    setErr(null);
-    try {
-      const token = await getToken();
-      const dest = `${FileSystem.cacheDirectory}care_summary_${c.id}.pdf`;
-      const { uri, status } = await FileSystem.downloadAsync(api.pdfUrl(c.id), dest, {
-        headers: token ? { Authorization: "Bearer " + token } : undefined,
-      });
-      if (status !== 200) throw new Error(`Download failed (${status})`);
-      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: "application/pdf" });
-    } catch (e: any) {
-      setErr(e.message);
-    }
+    const file = await downloadAuthedFile(api.pdfUrl(c.id), `care_summary_${c.id}`, ".pdf");
+    await sharePdf(file.uri, "Your care summary");
   }
 
   const viewedDoctor = doctors.find((d) => d.id === c.doctor_id);
@@ -342,8 +331,7 @@ export default function ConsultationView() {
         />
       )}
 
-      {/* Deferred until PatientSummaryView exists:
-      {user.role === "patient" && (
+      {user?.role === "patient" && (
         <PatientSummaryView
           c={c}
           meds={meds}
@@ -355,7 +343,6 @@ export default function ConsultationView() {
           refresh={refresh}
         />
       )}
-      */}
 
       {/* Deferred until CrossCheckReview exists:
       {isReviewer && <CrossCheckReview consultation={c} />}
