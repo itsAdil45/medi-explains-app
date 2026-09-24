@@ -22,7 +22,7 @@ if (!BASE) {
 
 const TOKEN_KEY = "mxp_token";
 
-async function getToken() {
+export async function getToken() {
   return AsyncStorage.getItem(TOKEN_KEY);
 }
 export async function setToken(t: string) {

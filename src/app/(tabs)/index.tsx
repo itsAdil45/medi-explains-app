@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
@@ -14,6 +14,8 @@ import {
 import HomeNav from "@/components/HomeNav";
 // import Footer from "@/components/Footer";
 import ContactSection from "@/components/ContactSection";
+import { useAuth } from "@/api/auth";
+import Dashboard from "@/components/Dashboard";
 
 const CAPABILITIES = [
   {
@@ -70,7 +72,7 @@ const STEPS = [
 // URL string (e.g. "https://.../hero-bg.mp4") if you'd rather host it.
 const heroSource = require("@/assets/hero-bg.mp4");
 
-export default function Home() {
+function MarketingHome() {
   const router = useRouter();
 
   const player = useVideoPlayer(heroSource, (p) => {
@@ -195,4 +197,20 @@ export default function Home() {
       {/* <Footer /> */}
     </ScrollView>
   );
+}
+
+// Native equivalent of App.jsx's RootRoute - "/" is the public marketing
+// home for a signed-out visitor and the dashboard for a signed-in one.
+export default function Index() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-white">
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  return user ? <Dashboard /> : <MarketingHome />;
 }

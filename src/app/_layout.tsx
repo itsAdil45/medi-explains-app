@@ -28,6 +28,10 @@ export default function RootLayout() {
             name="phone-sign-in"
             options={{ presentation: "modal", headerShown: false }}
           />
+          <Stack.Screen
+            name="consultation/[id]"
+            options={{ headerShown: true, title: "Consultation", headerBackTitle: "Back" }}
+          />
         </Stack>
       </AuthProvider>
     </ThemeProvider>
