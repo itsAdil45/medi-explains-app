@@ -29,19 +29,27 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Native mimic of App.jsx's <RedirectIfAuthed> wrapper around /login - an
-  // already-signed-in user shouldn't see the login form again.
-  if (!authLoading && user) return <Redirect href="/" />;
-
   // Unauthenticated blind patients have no menu to tap to reach phone
   // sign-in - listening for the wake phrase right on the landing page, no
   // toggle required, is the only way "just say Hey Doctor" actually works
   // for a first-time (or rare re-entry) visitor.
+  //
+  // This has to run before the RedirectIfAuthed check below it, not after -
+  // every hook in a component must run on every render, in the same order,
+  // regardless of any early return. Calling this after a conditional
+  // `return` meant it stopped running the moment `user` became truthy
+  // (right after a successful sign-in), which is one fewer hook than the
+  // previous render and is exactly what threw "Rendered fewer hooks than
+  // expected" here.
   const {
     supported: wakeSupported,
     listening: wakeListening,
     denied: wakeDenied,
   } = useWakePhraseSignIn();
+
+  // Native mimic of App.jsx's <RedirectIfAuthed> wrapper around /login - an
+  // already-signed-in user shouldn't see the login form again.
+  if (!authLoading && user) return <Redirect href="/" />;
 
   async function submit() {
     setErr(null);
