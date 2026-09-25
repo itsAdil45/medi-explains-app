@@ -20,6 +20,8 @@ import {
 import { api } from "@/api/client";
 import { useAuth } from "@/api/auth";
 import { StatusBadge } from "@/components/ui/badge";
+import MedicationAlarmManager from "@/components/MedicationAlarmManager";
+import VoiceAssistant from "@/components/VoiceAssistant";
 
 const NEEDS_ATTENTION = [
   "safety_review_required",
@@ -137,7 +139,8 @@ export default function Dashboard() {
   if (isReceptionist) return <Redirect href="/queue" />;
 
   return (
-    <ScrollView className=" bg-white px-5 py-6 ">
+    <>
+      <ScrollView className=" bg-white px-5 py-6 ">
       <View className="mb-5 flex-row items-start justify-between">
         <View>
           <Text className="mb-1 text-xl font-bold tracking-tight text-slate-900">
@@ -311,5 +314,11 @@ export default function Dashboard() {
         </View>
       </View>
     </ScrollView>
+
+      {/* Patient-only floating widgets - each no-ops (returns null) for any
+          other role, so it's safe to always mount them here. */}
+      <MedicationAlarmManager />
+      <VoiceAssistant />
+    </>
   );
 }

@@ -17,6 +17,8 @@ import ReportRequestCard from "@/components/consultation/ReportRequestCard";
 import ReportUploadCard from "@/components/consultation/ReportUploadCard";
 import BillCard from "@/components/consultation/BillCard";
 import CrossCheckReview from "@/components/consultation/CrossCheckReview";
+import MedicationAlarmManager from "@/components/MedicationAlarmManager";
+import VoiceAssistant from "@/components/VoiceAssistant";
 
 const POLL_MS = 3500;
 
@@ -216,7 +218,8 @@ export default function ConsultationView() {
   const viewedPatient = patients.find((p) => p.id === c.patient_id);
 
   return (
-    <ScrollView className="flex-1 bg-white px-5 py-6">
+    <>
+      <ScrollView className="flex-1 bg-white px-5 py-6">
       <View className="mb-4 flex-row items-center gap-3">
         <Text className="text-xl font-bold tracking-tight text-slate-900">Consultation #{c.id}</Text>
         <StatusBadge status={c.status} />
@@ -342,5 +345,11 @@ export default function ConsultationView() {
 
       <View className="h-10" />
     </ScrollView>
+
+      {/* Patient-only widgets - each no-ops (returns null) for any other
+          role, so it's safe to always mount them here. */}
+      <MedicationAlarmManager />
+      <VoiceAssistant />
+    </>
   );
 }
