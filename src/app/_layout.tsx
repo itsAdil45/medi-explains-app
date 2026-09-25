@@ -30,7 +30,11 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="consultation/[id]"
-            options={{ headerShown: true, title: "Consultation", headerBackTitle: "Back" }}
+            options={{
+              headerShown: false,
+              title: "Consultation",
+              headerBackTitle: "white",
+            }}
           />
         </Stack>
       </AuthProvider>

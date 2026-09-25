@@ -1,6 +1,13 @@
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
+import Nav from "@/components/Nav";
 import {
   Mic,
   Languages,
@@ -212,5 +219,12 @@ export default function Index() {
     );
   }
 
-  return user ? <Dashboard /> : <MarketingHome />;
+  return user ? (
+    <>
+      <Nav />
+      <Dashboard />
+    </>
+  ) : (
+    <MarketingHome />
+  );
 }
