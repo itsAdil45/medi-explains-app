@@ -12,15 +12,11 @@ import Recorder from "@/components/Recorder";
 import PipelineStepper from "@/components/consultation/PipelineStepper";
 import DoctorReview from "@/components/consultation/DoctorReview";
 import PatientSummaryView from "@/components/consultation/PatientSummaryView";
-// Not built yet - the website's NextVisitCard/ReportRequestCard/etc. haven't
-// been shared with us. Left commented so the shell below just needs these
-// lines uncommented once they exist, matching how the imports read on the
-// website's ConsultationView.jsx.
-// import NextVisitCard from "@/components/consultation/NextVisitCard";
-// import ReportRequestCard from "@/components/consultation/ReportRequestCard";
-// import ReportUploadCard from "@/components/consultation/ReportUploadCard";
-// import BillCard from "@/components/consultation/BillCard";
-// import CrossCheckReview from "@/components/consultation/CrossCheckReview";
+import NextVisitCard from "@/components/consultation/NextVisitCard";
+import ReportRequestCard from "@/components/consultation/ReportRequestCard";
+import ReportUploadCard from "@/components/consultation/ReportUploadCard";
+import BillCard from "@/components/consultation/BillCard";
+import CrossCheckReview from "@/components/consultation/CrossCheckReview";
 
 const POLL_MS = 3500;
 
@@ -243,12 +239,10 @@ export default function ConsultationView() {
 
       <PipelineStepper status={c.status} />
 
-      {/* Deferred until NextVisitCard/ReportRequestCard/BillCard exist:
       {isTreating && c.released_at && <NextVisitCard c={c} setC={setC} />}
       {isTreating && c.released_at && <ReportRequestCard c={c} setC={setC} />}
       {isTreating && c.released_at && <BillCard c={c} setC={setC} doctorFee={user.doctor_fee} />}
       {user.role === "patient" && c.report_requested_at && <ReportUploadCard c={c} setC={setC} />}
-      */}
 
       {needsAudio && isTreating && (
         <Card className="mb-5">
@@ -344,9 +338,7 @@ export default function ConsultationView() {
         />
       )}
 
-      {/* Deferred until CrossCheckReview exists:
       {isReviewer && <CrossCheckReview consultation={c} />}
-      */}
 
       <View className="h-10" />
     </ScrollView>
