@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { View, Text, TextInput, Linking } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import * as FileSystem from "expo-file-system";
-import * as Sharing from "expo-sharing";
-import { api, getToken } from "@/api/client";
+import { api } from "@/api/client";
+import { downloadAuthedFile, sharePdf } from "@/api/download";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -54,15 +53,8 @@ export default function ShareDialog({ consultationId }: { consultationId: string
     setErr(null);
     setPdfBusy(true);
     try {
-      const token = await getToken();
-      const dest = `${FileSystem.cacheDirectory}care_summary_${consultationId}.pdf`;
-      const { uri, status } = await FileSystem.downloadAsync(api.pdfUrl(consultationId), dest, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (status !== 200) throw new Error(`Download failed (${status})`);
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: "application/pdf" });
-      }
+      const file = await downloadAuthedFile(api.pdfUrl(consultationId), `care_summary_${consultationId}`, ".pdf");
+      await sharePdf(file.uri, "Your care summary");
     } catch (e: any) {
       setErr(String(e.message || e));
     } finally {
