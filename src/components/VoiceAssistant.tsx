@@ -119,6 +119,29 @@ export default function VoiceAssistant() {
     wakeEnabledRef.current = voiceWakeEnabled;
   }, [voiceWakeEnabled]);
 
+  // This component stays mounted on whichever screen renders it (Dashboard,
+  // ConsultationView) but not once that screen is gone - and startListening/
+  // handleRecording/playAnswer are multi-step async flows with several
+  // awaited steps in between. Leaving the screen mid-flow doesn't cancel
+  // that promise chain, so without this a stale prompt or answer could
+  // still play after the patient had already navigated away. Every speak
+  // call in those flows goes through one of these instead of calling
+  // expo-speech directly.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  function safeSpeak(text: string) {
+    if (mountedRef.current) speak(text);
+  }
+  function safeSpeakAndWait(text: string, maxWaitMs = 3000) {
+    if (!mountedRef.current) return Promise.resolve();
+    return speakAndWait(text, maxWaitMs);
+  }
+
   function getBeepPlayer() {
     if (!beepPlayerRef.current) beepPlayerRef.current = createAudioPlayer(require("@/assets/sounds/beep.wav"));
     return beepPlayerRef.current;
@@ -149,7 +172,8 @@ export default function VoiceAssistant() {
       // RECORD_MS window is available for the patient's actual question
       // instead of partly consumed by the prompt itself.
       setPhase("preparing");
-      await speakAndWait("Ask your question after the beep. Tap again to stop.", 4000);
+      await safeSpeakAndWait("Ask your question after the beep. Tap again to stop.", 4000);
+      if (!mountedRef.current) return;
 
       await audioRecorder.prepareToRecordAsync();
       await playBeep();
@@ -160,9 +184,10 @@ export default function VoiceAssistant() {
       // below is the normal path once someone finishes speaking early.
       recordTimeoutRef.current = setTimeout(finishRecording, RECORD_MS);
     } catch {
+      if (!mountedRef.current) return;
       setPhase("error");
       setMessage("Microphone access is required to ask a question.");
-      speak("Microphone access is required to ask a question.");
+      safeSpeak("Microphone access is required to ask a question.");
     }
   }
 
@@ -181,6 +206,7 @@ export default function VoiceAssistant() {
     try {
       await audioRecorder.stop();
     } catch {}
+    if (!mountedRef.current) return;
     const uri = audioRecorder.uri;
     if (uri) {
       handleRecording({ uri, name: "question.m4a", type: "audio/m4a" });
@@ -309,6 +335,7 @@ export default function VoiceAssistant() {
     () => () => {
       stopWakeListening();
       if (recordTimeoutRef.current) clearTimeout(recordTimeoutRef.current);
+      if (audioRecorder.isRecording) audioRecorder.stop().catch(() => {});
       try {
         answerPlayerRef.current?.remove();
       } catch {}
@@ -325,10 +352,11 @@ export default function VoiceAssistant() {
 
   async function handleRecording(file: { uri: string; name: string; type: string }) {
     setPhase("processing");
-    speak("One moment.");
+    safeSpeak("One moment.");
 
     try {
       const result = await api.voiceQuery(file);
+      if (!mountedRef.current) return;
       setTranscript(result.transcript || null);
 
       const config = result.intent && INTENT_CONFIG[result.intent];
@@ -338,24 +366,26 @@ export default function VoiceAssistant() {
         setPhase("error");
         const text = "Sorry, I didn't understand, or nothing released yet was found to answer that.";
         setMessage(text);
-        speak(text);
+        safeSpeak(text);
       }
     } catch (e: any) {
+      if (!mountedRef.current) return;
       setPhase("error");
       setMessage(e.message);
-      speak("Something went wrong. Please try again.");
+      safeSpeak("Something went wrong. Please try again.");
     }
   }
 
   async function playAnswer(config: { url: (api: any, id: string) => string; label: string }, consultationId: string) {
     try {
       const file = await downloadAuthedFile(config.url(api, consultationId), `voice_answer_${Date.now()}`, ".mp3");
+      if (!mountedRef.current) return;
       if (!answerPlayerRef.current) answerPlayerRef.current = createAudioPlayer(null);
       const player = answerPlayerRef.current;
       const sub = player.addListener("playbackStatusUpdate", (status: any) => {
         if (status.didJustFinish) {
           sub.remove();
-          setPhase("idle");
+          if (mountedRef.current) setPhase("idle");
         }
       });
       setSpeakingLabel(config.label);
@@ -363,9 +393,10 @@ export default function VoiceAssistant() {
       player.replace(file.uri);
       player.play();
     } catch (e: any) {
+      if (!mountedRef.current) return;
       setPhase("error");
       setMessage(e.message);
-      speak("Sorry, that audio could not be played.");
+      safeSpeak("Sorry, that audio could not be played.");
     }
   }
 

@@ -141,6 +141,19 @@ export default function MedicationAlarmManager() {
   // Prevent the same exact event/due-time from firing more than once. Snooze
   // creates a different due time, so it may correctly fire again.
   const firedRef = useRef<Set<string>>(new Set());
+  // The alarm/voice repeat loops already cancel themselves cleanly on
+  // unmount (stopAlarmLoop clears the interval, stopVoiceLoop's token guard
+  // stops the sequence from continuing). The one gap: ringGroup itself is a
+  // one-shot async function with an awaited step (the OS notification) -
+  // if it's mid-flight exactly when the screen unmounts, it could still
+  // start those loops fresh afterward. This closes that gap.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const isPatient = user?.role === "patient";
   const remindersEnabled = alarmEnabled || voiceEnabled;
@@ -327,8 +340,14 @@ export default function MedicationAlarmManager() {
       }
     } catch {}
 
+    // The notification above is deliberately not gated on mountedRef - it's
+    // the one part of this that *should* still reach the patient once
+    // they've left. The in-app audio loops below are the "sound playing
+    // for a screen that's gone" case, so those are gated.
+    if (!mountedRef.current) return;
     // Normal alarm is independent of voice.
     if (alarmEnabled) await startAlarmLoop();
+    if (!mountedRef.current) return stopAlarmLoop();
     // Voice is independent of normal alarm.
     if (voiceEnabled) startVoiceLoop(unfired);
   }

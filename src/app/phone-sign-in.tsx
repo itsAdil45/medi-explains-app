@@ -109,6 +109,19 @@ export default function PhoneSignIn() {
     };
   }, []);
 
+  // runVoiceFlow/captureWithRetries are long-running async functions with
+  // many awaited steps (speak a prompt, wait for it to finish, listen,
+  // speak the next prompt...). Leaving the screen doesn't cancel a promise
+  // chain already in flight - without this, a retry prompt like "Sorry, I
+  // didn't catch that" could still fire after the patient had already
+  // backed out, because the code driving it had no way to know the screen
+  // was gone. Every speakAndWait call in that flow goes through this
+  // instead of calling it directly.
+  function safeSpeak(text: string, maxWaitMs = 4000) {
+    if (!mountedRef.current) return Promise.resolve();
+    return speakAndWait(text, maxWaitMs);
+  }
+
   // Arrived here via the "Hey Doctor" wake phrase (useWakePhraseSignIn) -
   // run the whole phone-number -> call -> code flow by voice instead of
   // waiting for typed input. The manual form still works throughout, in
@@ -188,10 +201,12 @@ export default function PhoneSignIn() {
 
   async function captureWithRetries(attempts: number, retryPrompt: string, minDigits = 4) {
     for (let i = 0; i < attempts; i++) {
+      if (!mountedRef.current) return null;
       try {
         return await captureDigits(minDigits);
       } catch {
-        if (i < attempts - 1) await speakAndWait(retryPrompt, 3000);
+        if (!mountedRef.current) return null;
+        if (i < attempts - 1) await safeSpeak(retryPrompt, 3000);
       }
     }
     return null;
@@ -199,14 +214,16 @@ export default function PhoneSignIn() {
 
   async function runVoiceFlow() {
     const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!mountedRef.current) return;
     if (!perm.granted) {
-      await speakAndWait(
+      await safeSpeak(
         "I need microphone access to sign you in by voice. Please type your phone number in below.",
       );
       return;
     }
 
-    await speakAndWait("I'll help you sign in. Please say your phone number now.", 4000);
+    await safeSpeak("I'll help you sign in. Please say your phone number now.", 4000);
+    if (!mountedRef.current) return;
     const phoneDigits = await captureWithRetries(
       3,
       "Sorry, I didn't catch that. Please say your phone number again.",
@@ -214,13 +231,13 @@ export default function PhoneSignIn() {
     );
     if (!mountedRef.current) return;
     if (!phoneDigits) {
-      await speakAndWait(
+      await safeSpeak(
         "I couldn't understand your phone number. Please type it in below, or say Hey Doctor to try again.",
       );
       return;
     }
     setPhone(phoneDigits);
-    await speakAndWait(`Calling ${phoneDigits.split("").join(" ")} now.`, 3500);
+    await safeSpeak(`Calling ${phoneDigits.split("").join(" ")} now.`, 3500);
     if (!mountedRef.current) return;
 
     setErr(null);
@@ -232,7 +249,7 @@ export default function PhoneSignIn() {
       if (!mountedRef.current) return;
       setBusy(false);
       setErr(e.message);
-      await speakAndWait(`Something went wrong. ${e.message}`, 4000);
+      await safeSpeak(`Something went wrong. ${e.message}`, 4000);
       return;
     }
     if (!mountedRef.current) return;
@@ -240,17 +257,18 @@ export default function PhoneSignIn() {
     setStep("code");
     setBusy(false);
 
-    await speakAndWait(
+    await safeSpeak(
       "I'm calling you now. When you hear your code on the call, say the digits here.",
       4000,
     );
+    if (!mountedRef.current) return;
     const codeDigits = await captureWithRetries(
       3,
       "Sorry, I didn't catch that. Please say the code again.",
     );
     if (!mountedRef.current) return;
     if (!codeDigits) {
-      await speakAndWait(
+      await safeSpeak(
         "I couldn't catch the code. Please type it in below, or tap Speak your code to try again.",
       );
       return;
@@ -263,13 +281,13 @@ export default function PhoneSignIn() {
       const t = await api.phoneLoginVerify(phoneDigits, codeDigits);
       await applySession(t);
       if (!mountedRef.current) return;
-      await speakAndWait("You're signed in.", 2000);
+      await safeSpeak("You're signed in.", 2000);
       router.replace("/");
     } catch (e: any) {
       if (!mountedRef.current) return;
       setBusy(false);
       setErr(e.message);
-      await speakAndWait(`That code didn't work. ${e.message}`, 3500);
+      await safeSpeak(`That code didn't work. ${e.message}`, 3500);
     }
   }
 
@@ -300,7 +318,7 @@ export default function PhoneSignIn() {
       const res = await api.phoneLoginStart(phone.trim());
       setInfo(res.message);
       setStep("code");
-      Speech.speak("Say the code you heard on the call, one digit at a time.");
+      if (mountedRef.current) Speech.speak("Say the code you heard on the call, one digit at a time.");
     } catch (e: any) {
       setErr(e.message);
     } finally {
