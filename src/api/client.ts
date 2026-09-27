@@ -10,6 +10,20 @@
 //   origin automatically. A native app has no origin to inherit, so BASE
 //   has to be a full URL - see EXPO_PUBLIC_API_URL in .env.example.
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { File } from "expo-file-system";
+
+// RN's classic FormData "file part" hack - appending a plain {uri,name,type}
+// object - is what every upload call here used to do, and is still what RN's
+// own docs describe. On this project's setup (Hermes + New Architecture) it
+// throws "Unsupported FormDataPart implementation" instead - the networking
+// layer only recognises a real Blob-like object now, not that plain-object
+// hack. expo-file-system's new File class IS Blob-like (download.ts already
+// relies on this), so wrapping the uri in one is what actually gets
+// accepted; the filename goes through FormData.append's own third argument
+// rather than a property on the value.
+function toFormFile(file: { uri: string }) {
+  return new File(file.uri);
+}
 
 const BASE = process.env.EXPO_PUBLIC_API_URL;
 if (!BASE) {
@@ -153,14 +167,12 @@ export const api = {
   },
   async uploadAudio(id: string, file: { uri: string; name: string; type: string }) {
     const fd = new FormData();
-    // @ts-expect-error RN's FormData accepts {uri,name,type} file parts, unlike DOM's File/Blob
-    fd.append("file", file);
+    fd.append("file", toFormFile(file) as any, file.name);
     return request("POST", `/consultations/${id}/audio`, { formData: fd });
   },
   async uploadPrescription(id: string, file: { uri: string; name: string; type: string }) {
     const fd = new FormData();
-    // @ts-expect-error see uploadAudio
-    fd.append("file", file);
+    fd.append("file", toFormFile(file) as any, file.name);
     return request("POST", `/consultations/${id}/prescription`, {
       formData: fd,
     });
@@ -189,8 +201,7 @@ export const api = {
   },
   async uploadReport(id: string, file: { uri: string; name: string; type: string }) {
     const fd = new FormData();
-    // @ts-expect-error see uploadAudio
-    fd.append("file", file);
+    fd.append("file", toFormFile(file) as any, file.name);
     return request("POST", `/consultations/${id}/report`, { formData: fd });
   },
   async markReportReviewed(id: string) {
@@ -315,8 +326,7 @@ export const api = {
   // voice assistant (patient)
   async voiceQuery(file: { uri: string; name: string; type: string }) {
     const fd = new FormData();
-    // @ts-expect-error see uploadAudio
-    fd.append("file", file);
+    fd.append("file", toFormFile(file) as any, file.name);
     return request("POST", "/patient/voice-query", { formData: fd });
   },
   prescriptionAudioUrl(cid: string) {
