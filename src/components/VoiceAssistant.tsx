@@ -335,7 +335,11 @@ export default function VoiceAssistant() {
     () => () => {
       stopWakeListening();
       if (recordTimeoutRef.current) clearTimeout(recordTimeoutRef.current);
-      if (audioRecorder.isRecording) audioRecorder.stop().catch(() => {});
+      // No explicit audioRecorder.stop() here on purpose: useAudioRecorder
+      // releases its native recorder itself when this component unmounts
+      // (which also ends any in-progress recording), and that release runs
+      // before this cleanup - so touching audioRecorder here throws "Cannot
+      // use shared object that was already released".
       try {
         answerPlayerRef.current?.remove();
       } catch {}
