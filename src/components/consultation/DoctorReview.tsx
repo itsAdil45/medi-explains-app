@@ -1,7 +1,19 @@
 import { useState } from "react";
 import { View, Text, TextInput, Pressable } from "react-native";
-import { RefreshCw, Plus, CheckCircle2, ShieldCheck, Check } from "lucide-react-native";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import {
+  RefreshCw,
+  Plus,
+  CheckCircle2,
+  ShieldCheck,
+  Check,
+} from "lucide-react-native";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import LanguagePicker from "@/components/LanguagePicker";
@@ -11,7 +23,12 @@ import MedicationEditor from "@/components/MedicationEditor";
 import TranscriptReview from "@/components/TranscriptReview";
 import SafetyChecks from "@/components/SafetyChecks";
 
-const LOCKED_AFTER = ["approved", "released", "under_cross_check", "cross_checked"];
+const LOCKED_AFTER = [
+  "approved",
+  "released",
+  "under_cross_check",
+  "cross_checked",
+];
 const MED_LOCKED_AFTER = ["released", "under_cross_check", "cross_checked"];
 
 const TABS = [
@@ -29,7 +46,10 @@ function TabDot({ tone }: { tone: "good" | "warning" | null }) {
   if (!tone) return null;
   if (tone === "good") {
     return (
-      <View className="size-4 items-center justify-center rounded-full bg-emerald-500" accessibilityLabel="all resolved">
+      <View
+        className="size-4 items-center justify-center rounded-full bg-emerald-500"
+        accessibilityLabel="all resolved"
+      >
         <Check size={11} color="#fff" strokeWidth={3.5} />
       </View>
     );
@@ -83,17 +103,25 @@ export default function DoctorReview({
   reviews: any[];
   doctors: any[];
 }) {
-  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["key"]>("transcript");
-  const [safetyCounts, setSafetyCounts] = useState({ total: 0, needReview: 0, passed: 0 });
+  const [activeTab, setActiveTab] =
+    useState<(typeof TABS)[number]["key"]>("transcript");
+  const [safetyCounts, setSafetyCounts] = useState({
+    total: 0,
+    needReview: 0,
+    passed: 0,
+  });
 
   const englishTranscript =
     c.model_metadata?.doctor_transcript_en ||
-    (c.languages_detected?.length === 1 && c.languages_detected[0] === "en" ? c.raw_transcript || "" : "");
+    (c.languages_detected?.length === 1 && c.languages_detected[0] === "en"
+      ? c.raw_transcript || ""
+      : "");
 
   const unconfirmedMeds = meds.filter((m) => !m.doctor_confirmed).length;
 
   function tabTone(key: string): "good" | "warning" | null {
-    if (key === "transcript" || key === "summary") return transcriptStale ? "warning" : null;
+    if (key === "transcript" || key === "summary")
+      return transcriptStale ? "warning" : null;
     if (key === "safety") {
       if (safetyCounts.needReview > 0) return "warning";
       if (safetyCounts.total > 0) return "good";
@@ -108,7 +136,8 @@ export default function DoctorReview({
   }
 
   function tabBadgeCount(key: string) {
-    if (key === "safety" && safetyCounts.needReview > 0) return safetyCounts.needReview;
+    if (key === "safety" && safetyCounts.needReview > 0)
+      return safetyCounts.needReview;
     if (key === "medications" && unconfirmedMeds > 0) return unconfirmedMeds;
     return null;
   }
@@ -135,22 +164,28 @@ export default function DoctorReview({
 
   return (
     <View className="gap-5">
-      <View className="flex-row gap-2">
+      <View className=" flex gap-2">
         {TABS.map((t) => (
           <Pressable
             key={t.key}
             onPress={() => setActiveTab(t.key)}
             className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-md border px-2 py-2 ${
-              activeTab === t.key ? "border-[#4ab96a] bg-[#4ab96a]" : "border-slate-200 bg-white"
+              activeTab === t.key
+                ? "border-[#4ab96a] bg-[#4ab96a]"
+                : "border-slate-200 bg-white"
             }`}
           >
-            <Text className={`text-[12px] font-semibold ${activeTab === t.key ? "text-white" : "text-slate-600"}`}>
+            <Text
+              className={`text-[12px] font-semibold ${activeTab === t.key ? "text-white" : "text-slate-600"}`}
+            >
               {t.label}
             </Text>
             <TabDot tone={tabTone(t.key)} />
             {tabBadgeCount(t.key) != null && (
               <View className="size-4 items-center justify-center rounded-full bg-red-500">
-                <Text className="text-[10px] font-bold text-white">{tabBadgeCount(t.key)}</Text>
+                <Text className="text-[10px] font-bold text-white">
+                  {tabBadgeCount(t.key)}
+                </Text>
               </View>
             )}
           </Pressable>
@@ -162,19 +197,24 @@ export default function DoctorReview({
           {c.code_switched && (
             <View className="rounded-lg bg-violet-50 px-4 py-3">
               <Text className="text-[13px] text-violet-900">
-                <Text className="font-bold">Mixed-language transcription mode was used.</Text> The raw STT
-                output is preserved. Corrections below create a reviewed transcript rather than silently
-                replacing it.
+                <Text className="font-bold">
+                  Mixed-language transcription mode was used.
+                </Text>{" "}
+                The raw STT output is preserved. Corrections below create a
+                reviewed transcript rather than silently replacing it.
               </Text>
             </View>
           )}
 
           <Card>
             <CardHeader>
-              <CardTitle>Original transcript {"\u2014"} immutable source</CardTitle>
+              <CardTitle>
+                Original transcript {"\u2014"} immutable source
+              </CardTitle>
               <CardDescription>
-                Original speech is preserved in its correct writing system. Hindi/Devanagari is not
-                accepted for Urdu, Punjabi Shahmukhi, Pashto, Sindhi or Arabic.
+                Original speech is preserved in its correct writing system.
+                Hindi/Devanagari is not accepted for Urdu, Punjabi Shahmukhi,
+                Pashto, Sindhi or Arabic.
               </CardDescription>
             </CardHeader>
             <CardContent className="gap-4">
@@ -183,12 +223,16 @@ export default function DoctorReview({
                 value={c.raw_transcript || ""}
                 multiline
                 className={`min-h-[140px] rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-sm text-slate-800 ${
-                  ["ur", "pa_shah", "ps", "sd", "ar"].includes(c.stt_primary_language)
+                  ["ur", "pa_shah", "ps", "sd", "ar"].includes(
+                    c.stt_primary_language,
+                  )
                     ? "text-right text-[15px] leading-loose"
                     : ""
                 }`}
                 style={
-                  ["ur", "pa_shah", "ps", "sd", "ar"].includes(c.stt_primary_language)
+                  ["ur", "pa_shah", "ps", "sd", "ar"].includes(
+                    c.stt_primary_language,
+                  )
                     ? { writingDirection: "rtl" }
                     : undefined
                 }
@@ -212,7 +256,9 @@ export default function DoctorReview({
           <Card>
             <CardHeader>
               <CardTitle>AI clinical note {"\u2014"} SOAP draft</CardTitle>
-              <CardDescription>Independently generated from the source transcript.</CardDescription>
+              <CardDescription>
+                Independently generated from the source transcript.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <TextInput
@@ -243,17 +289,26 @@ export default function DoctorReview({
                 {"\u26a0"} Transcript changed by the doctor
               </Text>
               <Text className="mb-1 text-[13px] text-red-900">
-                The existing clinical note, patient summary, medication extraction, safety checks,
-                translation and audio were created from the previous transcript.
+                The existing clinical note, patient summary, medication
+                extraction, safety checks, translation and audio were created
+                from the previous transcript.
               </Text>
               <Text className="mb-3 text-[13px] text-red-900">
-                Regenerate the AI outputs before reviewing or approving the patient summary.
+                Regenerate the AI outputs before reviewing or approving the
+                patient summary.
               </Text>
-              <Button size="sm" onPress={regenerateReviewed} disabled={busy} loading={busy}>
+              <Button
+                size="sm"
+                onPress={regenerateReviewed}
+                disabled={busy}
+                loading={busy}
+              >
                 <View className="flex-row items-center gap-1.5">
                   <RefreshCw size={14} color="#fff" />
                   <Text className="text-sm font-semibold text-white">
-                    {busy ? "Regenerating\u2026" : "Regenerate from doctor-reviewed transcript"}
+                    {busy
+                      ? "Regenerating\u2026"
+                      : "Regenerate from doctor-reviewed transcript"}
                   </Text>
                 </View>
               </Button>
@@ -271,8 +326,8 @@ export default function DoctorReview({
             {transcriptStale && (
               <View className="rounded-lg bg-red-50 px-4 py-3">
                 <Text className="text-[13px] text-red-900">
-                  This summary is outdated because the transcript was corrected. Regenerate it before
-                  making final edits.
+                  This summary is outdated because the transcript was corrected.
+                  Regenerate it before making final edits.
                 </Text>
               </View>
             )}
@@ -284,8 +339,9 @@ export default function DoctorReview({
               className={`min-h-[150px] rounded-lg border border-slate-200 p-3.5 text-sm text-slate-800 ${editableSummary ? "bg-white" : "bg-slate-50 text-slate-500"}`}
             />
             <Text className="text-xs text-slate-500">
-              SOAP and patient explanation are generated independently. Final patient text is translated
-              and converted to speech from the doctor-approved version.
+              SOAP and patient explanation are generated independently. Final
+              patient text is translated and converted to speech from the
+              doctor-approved version.
             </Text>
 
             {c.patient_summary_translated && c.patient_language !== "en" && (
@@ -293,12 +349,18 @@ export default function DoctorReview({
                 <Text className="mb-2 text-[13px] font-bold text-slate-900">
                   Translation preview ({langMeta?.native || c.patient_language})
                 </Text>
-                <View className={`mb-2.5 rounded-lg px-3.5 py-2.5 ${c.translation_verified ? "bg-emerald-50" : "bg-red-50"}`}>
-                  <Text className={`text-[13px] ${c.translation_verified ? "text-emerald-900" : "text-red-900"}`}>
+                <View
+                  className={`mb-2.5 rounded-lg px-3.5 py-2.5 ${c.translation_verified ? "bg-emerald-50" : "bg-red-50"}`}
+                >
+                  <Text
+                    className={`text-[13px] ${c.translation_verified ? "text-emerald-900" : "text-red-900"}`}
+                  >
                     {c.translation_verified
                       ? "\u2713 Numeric/script integrity checks passed."
                       : "\u26a0 Translation requires doctor review before release."}
-                    {c.translation_quality ? ` Status: ${c.translation_quality}.` : ""}
+                    {c.translation_quality
+                      ? ` Status: ${c.translation_quality}.`
+                      : ""}
                   </Text>
                 </View>
                 <TextInput
@@ -312,8 +374,14 @@ export default function DoctorReview({
             )}
 
             <View>
-              <Text className="mb-1.5 text-[13px] font-bold text-slate-900">Patient output language</Text>
-              <LanguagePicker value={c.patient_language} onChange={retranslate} disabled={busy || transcriptStale} />
+              <Text className="mb-1.5 text-[13px] font-bold text-slate-900">
+                Patient output language
+              </Text>
+              <LanguagePicker
+                value={c.patient_language}
+                onChange={retranslate}
+                disabled={busy || transcriptStale}
+              />
             </View>
           </CardContent>
         </Card>
@@ -328,7 +396,11 @@ export default function DoctorReview({
             </View>
           </CardHeader>
           <CardContent>
-            <SafetyChecks consultationId={c.id} canResolve onStatusChange={setSafetyCounts} />
+            <SafetyChecks
+              consultationId={c.id}
+              canResolve
+              onStatusChange={setSafetyCounts}
+            />
           </CardContent>
         </Card>
       )}
@@ -341,9 +413,14 @@ export default function DoctorReview({
             </CardHeader>
             <CardContent>
               {LOCKED_AFTER.includes(c.status) ? (
-                <Text className="text-xs text-slate-500">Prescription processing is locked after doctor approval.</Text>
+                <Text className="text-xs text-slate-500">
+                  Prescription processing is locked after doctor approval.
+                </Text>
               ) : (
-                <PrescriptionUpload consultationId={c.id} onExtracted={refresh} />
+                <PrescriptionUpload
+                  consultationId={c.id}
+                  onExtracted={refresh}
+                />
               )}
             </CardContent>
           </Card>
@@ -353,12 +430,17 @@ export default function DoctorReview({
               <CardTitle>
                 Medications{" "}
                 <Text className="text-xs font-normal text-slate-500">
-                  {"\u2014"} extraction, terminology-match and doctor confirmation are separate
+                  {"\u2014"} extraction, terminology-match and doctor
+                  confirmation are separate
                 </Text>
               </CardTitle>
             </CardHeader>
             <CardContent className="gap-2.5">
-              {!meds.length && <Text className="text-xs text-slate-500">No medication instructions extracted.</Text>}
+              {!meds.length && (
+                <Text className="text-xs text-slate-500">
+                  No medication instructions extracted.
+                </Text>
+              )}
               {meds.map((m, i) => (
                 <MedicationEditor
                   key={`${i}-${m.name || ""}`}
@@ -370,10 +452,17 @@ export default function DoctorReview({
                 />
               ))}
               {!MED_LOCKED_AFTER.includes(c.status) && (
-                <Button variant="secondary" size="sm" onPress={addMed} disabled={busy}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onPress={addMed}
+                  disabled={busy}
+                >
                   <View className="flex-row items-center gap-1.5">
                     <Plus size={14} color="#334155" />
-                    <Text className="text-sm font-semibold text-slate-700">Add medication manually</Text>
+                    <Text className="text-sm font-semibold text-slate-700">
+                      Add medication manually
+                    </Text>
                   </View>
                 </Button>
               )}
@@ -405,18 +494,34 @@ export default function DoctorReview({
             <CardContent className="gap-3">
               <View className="rounded-lg bg-amber-50 px-3.5 py-3">
                 <Text className="text-[13px] text-amber-900">
-                  Review each medicine's dose, frequency, timing and duration before release. AI
-                  Healthcare+ generates reminders only from doctor-confirmed instructions.
+                  Review each medicine's dose, frequency, timing and duration
+                  before release. AI Healthcare+ generates reminders only from
+                  doctor-confirmed instructions.
                 </Text>
               </View>
               <View className="gap-1 pl-1">
-                <Text className="text-[13px] text-slate-700">{"\u2022"} Confirm the medication identity.</Text>
-                <Text className="text-[13px] text-slate-700">{"\u2022"} Confirm the dose and frequency.</Text>
-                <Text className="text-[13px] text-slate-700">{"\u2022"} Enter a duration for fixed medication schedules.</Text>
-                <Text className="text-[13px] text-slate-700">{"\u2022"} Use PRN / as-needed only when no fixed alarm is appropriate.</Text>
+                <Text className="text-[13px] text-slate-700">
+                  {"\u2022"} Confirm the medication identity.
+                </Text>
+                <Text className="text-[13px] text-slate-700">
+                  {"\u2022"} Confirm the dose and frequency.
+                </Text>
+                <Text className="text-[13px] text-slate-700">
+                  {"\u2022"} Enter a duration for fixed medication schedules.
+                </Text>
+                <Text className="text-[13px] text-slate-700">
+                  {"\u2022"} Use PRN / as-needed only when no fixed alarm is
+                  appropriate.
+                </Text>
               </View>
-              <Button onPress={handleReleaseClick} disabled={busy} loading={busy}>
-                {busy ? "Generating schedule\u2026" : "\u2713 Approve medication schedule & release to patient"}
+              <Button
+                onPress={handleReleaseClick}
+                disabled={busy}
+                loading={busy}
+              >
+                {busy
+                  ? "Generating schedule\u2026"
+                  : "\u2713 Approve medication schedule & release to patient"}
               </Button>
             </CardContent>
           </Card>
@@ -430,23 +535,35 @@ export default function DoctorReview({
             <CardContent className="gap-2.5">
               {reviews.map((r) => {
                 const d = doctors.find((x) => x.id === r.reviewer_id);
-                const concerning = r.verdict === "disagree" || r.verdict === "flag";
+                const concerning =
+                  r.verdict === "disagree" || r.verdict === "flag";
                 return (
-                  <View key={r.id} className={`rounded-lg px-3.5 py-3 ${concerning ? "bg-red-50" : "bg-emerald-50"}`}>
-                    <Text className={`text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}>
-                      <Text className="font-bold">{d?.full_name || `Doctor #${r.reviewer_id}`}</Text>
+                  <View
+                    key={r.id}
+                    className={`rounded-lg px-3.5 py-3 ${concerning ? "bg-red-50" : "bg-emerald-50"}`}
+                  >
+                    <Text
+                      className={`text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}
+                    >
+                      <Text className="font-bold">
+                        {d?.full_name || `Doctor #${r.reviewer_id}`}
+                      </Text>
                       {" \u00b7 "}
                       {r.request_status}
                       {" \u00b7 "}
                       {r.verdict}
                     </Text>
                     {r.reason && (
-                      <Text className={`mt-1 text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}>
+                      <Text
+                        className={`mt-1 text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}
+                      >
                         Reason: {r.reason}
                       </Text>
                     )}
                     {r.comments && (
-                      <Text className={`mt-1 text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}>
+                      <Text
+                        className={`mt-1 text-[13px] ${concerning ? "text-red-900" : "text-emerald-900"}`}
+                      >
                         Comment: {r.comments}
                       </Text>
                     )}
