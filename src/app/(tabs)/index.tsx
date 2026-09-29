@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -5,8 +6,9 @@ import {
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link, Redirect, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Nav from "@/components/Nav";
 import {
   Mic,
@@ -23,6 +25,7 @@ import HomeNav from "@/components/HomeNav";
 import ContactSection from "@/components/ContactSection";
 import { useAuth } from "@/api/auth";
 import Dashboard from "@/components/Dashboard";
+import { ONBOARDING_SEEN_KEY } from "@/constants/onboarding";
 
 const CAPABILITIES = [
   {
@@ -207,17 +210,25 @@ function MarketingHome() {
 }
 
 // Native equivalent of App.jsx's RootRoute - "/" is the public marketing
-// home for a signed-out visitor and the dashboard for a signed-in one.
+// home for a signed-out visitor and the dashboard for a signed-in one. A
+// first-time signed-out visitor sees /onboarding instead, once.
 export default function Index() {
   const { user, loading } = useAuth();
+  const [onboardingSeen, setOnboardingSeen] = useState<boolean | null>(null);
 
-  if (loading) {
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDING_SEEN_KEY).then((v) => setOnboardingSeen(v === "true"));
+  }, []);
+
+  if (loading || (!user && onboardingSeen === null)) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
         <ActivityIndicator />
       </View>
     );
   }
+
+  if (!user && !onboardingSeen) return <Redirect href="/onboarding" />;
 
   return user ? (
     <>
