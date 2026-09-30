@@ -32,7 +32,10 @@ export default function Recorder({
   useEffect(() => {
     return () => {
       if (maxTimerRef.current) clearTimeout(maxTimerRef.current);
-      if (audioRecorder.isRecording) audioRecorder.stop().catch(() => {});
+      // Not touching audioRecorder here: useAudioRecorder releases the native
+      // recorder itself on unmount (ending any recording in progress), before
+      // this cleanup runs - reading it here throws "Cannot use shared object
+      // that was already released".
     };
   }, []);
 

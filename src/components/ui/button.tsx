@@ -1,4 +1,9 @@
-import { Pressable, Text, ActivityIndicator, type PressableProps } from "react-native";
+import {
+  Pressable,
+  Text,
+  ActivityIndicator,
+  type PressableProps,
+} from "react-native";
 
 type Variant = "default" | "secondary" | "danger";
 type Size = "default" | "sm";
@@ -43,11 +48,14 @@ export function Button({
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "default" ? "#fff" : "#334155"} size="small" />
+        <ActivityIndicator
+          color={variant === "default" ? "#fff" : "#334155"}
+          size="small"
+        />
       ) : typeof children === "string" ? (
         <Text className={`text-sm font-semibold ${v.text}`}>{children}</Text>
       ) : (
-        children
+        <Text>{children}</Text>
       )}
     </Pressable>
   );

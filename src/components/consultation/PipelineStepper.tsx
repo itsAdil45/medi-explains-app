@@ -4,7 +4,7 @@ import { Check, AlertTriangle } from "lucide-react-native";
 const STAGES = [
   { key: "recorded", label: "Recorded" },
   { key: "transcribed", label: "Transcribed" },
-  { key: "safety", label: "Safety review" },
+  { key: "safety", label: " Review" },
   { key: "approved", label: "Approved" },
   { key: "released", label: "Released" },
 ];
@@ -42,7 +42,10 @@ export default function PipelineStepper({ status }: { status: string }) {
           const erroredHere = failed && i === activeIndex;
 
           return (
-            <View key={stage.key} className={`flex-row items-center ${isLast ? "" : "flex-1"}`}>
+            <View
+              key={stage.key}
+              className={`flex-row items-center ${isLast ? "" : "flex-1"}`}
+            >
               <View className="items-center gap-1.5">
                 <View
                   className={`size-[28px] items-center justify-center rounded-full ${
@@ -60,7 +63,9 @@ export default function PipelineStepper({ status }: { status: string }) {
                   ) : done ? (
                     <Check size={13} color="#fff" strokeWidth={2.5} />
                   ) : (
-                    <View className={`size-2 rounded-full ${current ? "bg-white" : "bg-slate-400"}`} />
+                    <View
+                      className={`size-2 rounded-full ${current ? "bg-white" : "bg-slate-400"}`}
+                    />
                   )}
                 </View>
                 <Text
@@ -80,7 +85,9 @@ export default function PipelineStepper({ status }: { status: string }) {
               {!isLast && (
                 <View
                   className={`mx-1.5 mb-[20px] h-0.5 flex-1 ${
-                    done || (failed && i < activeIndex) ? "bg-emerald-500" : "bg-slate-200"
+                    done || (failed && i < activeIndex)
+                      ? "bg-emerald-500"
+                      : "bg-slate-200"
                   }`}
                 />
               )}

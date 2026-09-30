@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
  * Compact share panel: generates a signed link, displays it, provides a
  * WhatsApp deep-link and a PDF download.
  */
-export default function ShareDialog({ consultationId }: { consultationId: string }) {
+export default function ShareDialog({
+  consultationId,
+}: {
+  consultationId: string;
+}) {
   const [phone, setPhone] = useState("");
   const [link, setLink] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -53,7 +57,11 @@ export default function ShareDialog({ consultationId }: { consultationId: string
     setErr(null);
     setPdfBusy(true);
     try {
-      const file = await downloadAuthedFile(api.pdfUrl(consultationId), `care_summary_${consultationId}`, ".pdf");
+      const file = await downloadAuthedFile(
+        api.pdfUrl(consultationId),
+        `care_summary_${consultationId}`,
+        ".pdf",
+      );
       await sharePdf(file.uri, "Your care summary");
     } catch (e: any) {
       setErr(String(e.message || e));
@@ -64,7 +72,9 @@ export default function ShareDialog({ consultationId }: { consultationId: string
 
   return (
     <View>
-      <Text className="text-sm font-bold text-slate-900">Share this summary with the patient</Text>
+      <Text className="text-sm font-bold text-slate-900">
+        Share this summary with the patient
+      </Text>
 
       <View className="mt-2.5">
         <Text className="mb-1 text-xs font-semibold text-slate-700">
@@ -84,26 +94,39 @@ export default function ShareDialog({ consultationId }: { consultationId: string
         <Button onPress={generate} disabled={busy} loading={busy}>
           {link ? "Regenerate link" : "Generate share link"}
         </Button>
-        <Button variant="secondary" onPress={downloadPdf} disabled={pdfBusy} loading={pdfBusy}>
+        <Button
+          variant="secondary"
+          onPress={downloadPdf}
+          disabled={pdfBusy}
+          loading={pdfBusy}
+        >
           {"\ud83d\udcc4"} Download PDF
         </Button>
       </View>
 
-      {err && <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>}
+      {err && (
+        <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>
+      )}
 
       {link && (
         <>
-          <Text className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700" selectable>
+          <Text
+            className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700"
+            selectable
+          >
             {link.share_url}
           </Text>
           <View className="mt-2 flex-row flex-wrap gap-2">
-            <Button onPress={openWhatsApp}>{"\ud83d\udcf1"} Open WhatsApp</Button>
+            <Button onPress={openWhatsApp}>
+              {"\ud83d\udcf1"} <Text>Open WhatsApp</Text>
+            </Button>
             <Button variant="secondary" onPress={copyLink}>
               {copied ? "\u2713 Copied" : "\ud83d\udccb Copy link"}
             </Button>
           </View>
           <Text className="mt-2 text-xs text-slate-500">
-            Link is valid for {link.expires_in_hours} hours. Patient does not need an account.
+            Link is valid for {link.expires_in_hours} hours. Patient does not
+            need an account.
           </Text>
         </>
       )}

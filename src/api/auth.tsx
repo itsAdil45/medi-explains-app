@@ -1,7 +1,21 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, clearToken, setToken } from "./client";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  api,
+  clearToken,
+  loadActiveClinicId,
+  setActiveClinicId,
+  setToken,
+} from "./client";
 
 type User = Record<string, any> | null;
+type Clinic = Record<string, any>;
 type Session = { access_token: string; user: NonNullable<User> };
 
 type AuthContextValue = {
@@ -11,6 +25,12 @@ type AuthContextValue = {
   logout: () => void;
   setUser: (u: User) => void;
   applySession: (t: Session) => Promise<NonNullable<User>>;
+  clinics: Clinic[];
+  activeClinic: Clinic | null;
+  activeClinicId: string | null;
+  clinicsReady: boolean;
+  switchClinic: (id: string | number | null) => void;
+  refreshClinics: () => Promise<void>;
 };
 
 const AuthCtx = createContext<AuthContextValue | null>(null);
@@ -18,6 +38,12 @@ const AuthCtx = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User>(null);
   const [loading, setLoading] = useState(true);
+  // Staff only: the clinics they work at (admins: every clinic in the
+  // organization) and the one they're working in right now. Patients pick a
+  // clinic per booking instead, so they never get an active clinic.
+  const [clinics, setClinics] = useState<Clinic[]>([]);
+  const [activeClinicId, setActive] = useState<string | null>(null);
+  const [clinicsReady, setClinicsReady] = useState(false);
 
   useEffect(() => {
     api
@@ -26,6 +52,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => clearToken())
       .finally(() => setLoading(false));
   }, []);
+
+  const refreshClinics = useCallback(async () => {
+    if (!user) {
+      // Also runs on startup before /users/me has answered - leave the
+      // saved clinic alone (logout clears it), or every launch would reset
+      // the switcher to the first clinic.
+      setClinics([]);
+      setClinicsReady(true);
+      return;
+    }
+    if (user.role === "patient") {
+      setClinics([]);
+      setActiveClinicId(null);
+      setActive(null);
+      setClinicsReady(true);
+      return;
+    }
+    try {
+      const list = (await api.listClinics()) as Clinic[];
+      setClinics(list);
+      const usable = list.filter((c) => c.is_active);
+      // AsyncStorage is async, so read the saved id here instead of in useState.
+      const stored = await loadActiveClinicId();
+      const pick = usable.find((c) => String(c.id) === stored) || usable[0];
+      const id = pick ? String(pick.id) : null;
+      setActiveClinicId(id);
+      setActive(id);
+    } catch {
+      setClinics([]);
+    } finally {
+      setClinicsReady(true);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    setClinicsReady(false);
+    refreshClinics();
+  }, [user?.id, refreshClinics]);
+
+  function switchClinic(id: string | number | null) {
+    setActiveClinicId(id == null ? null : String(id));
+    setActive(id ? String(id) : null);
+  }
 
   // Shared by every login path (password, phone-call OTP, ...) - each just
   // needs to obtain a Token the normal way and hand it here.
@@ -44,10 +113,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function logout() {
     clearToken();
     setUser(null);
+    setClinics([]);
+    setActive(null);
   }
 
+  const activeClinic =
+    clinics.find((c) => String(c.id) === activeClinicId) || null;
+
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, setUser, applySession }}>
+    <AuthCtx.Provider
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+        setUser,
+        applySession,
+        clinics,
+        activeClinic,
+        activeClinicId,
+        clinicsReady,
+        switchClinic,
+        refreshClinics,
+      }}
+    >
       {children}
     </AuthCtx.Provider>
   );
