@@ -32,18 +32,22 @@ function Field({
   );
 }
 
+// canConfirm=false for an assistant: they can correct a medicine but never
+// sign it off - the backend enforces this too.
 export default function MedicationEditor({
   consultationId,
   index,
   med,
   readOnly,
   onChange,
+  canConfirm = true,
 }: {
-  consultationId: string;
+  consultationId: string | number;
   index: number;
   med: any;
   readOnly?: boolean;
   onChange?: (updated: any) => void;
+  canConfirm?: boolean;
 }) {
   const [draft, setDraft] = useState<any>(med || {});
   const [suggestions, setSuggestions] = useState<any[]>(med?.suggestions || []);
@@ -55,8 +59,12 @@ export default function MedicationEditor({
     setSuggestions(med?.suggestions || []);
   }, [med]);
 
-  const extraction = typeof draft.confidence === "number" ? draft.confidence : null;
-  const match = typeof draft.match_confidence === "number" ? draft.match_confidence : (suggestions?.[0]?.score ?? null);
+  const extraction =
+    typeof draft.confidence === "number" ? draft.confidence : null;
+  const match =
+    typeof draft.match_confidence === "number"
+      ? draft.match_confidence
+      : (suggestions?.[0]?.score ?? null);
   const set = (k: string, v: any) => setDraft((x: any) => ({ ...x, [k]: v }));
 
   async function save(confirm = false) {
@@ -120,84 +128,163 @@ export default function MedicationEditor({
   }
 
   function remove() {
-    Alert.alert("Remove medication", "Remove this medication from the consultation?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          setBusy(true);
-          try {
-            onChange?.(await api.removeMedication(consultationId, index));
-          } catch (e: any) {
-            setErr(e.message);
-          } finally {
-            setBusy(false);
-          }
+    Alert.alert(
+      "Remove medication",
+      "Remove this medication from the consultation?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setBusy(true);
+            try {
+              onChange?.(await api.removeMedication(consultationId, index));
+            } catch (e: any) {
+              setErr(e.message);
+            } finally {
+              setBusy(false);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   return (
     <View className="rounded-lg border border-slate-200 p-4">
       <View className="mb-3 flex-row flex-wrap items-center gap-1.5">
-        {extraction != null && <Badge tone="slate">Extraction {Math.round(extraction * 100)}%</Badge>}
-        {match != null && <Badge tone="slate">Drug match {Math.round(match * 100)}%</Badge>}
+        {extraction != null && (
+          <Badge tone="slate">Extraction {Math.round(extraction * 100)}%</Badge>
+        )}
+        {match != null && (
+          <Badge tone="slate">Drug match {Math.round(match * 100)}%</Badge>
+        )}
         {draft.doctor_confirmed ? (
           <Badge tone="green">{"\u2713"} Doctor confirmed</Badge>
         ) : (
           <Badge tone="amber">Needs doctor confirmation</Badge>
         )}
+        {draft.assistant_edited && (
+          <Badge tone="violet">Changed by assistant</Badge>
+        )}
         {draft.name_as_heard && (
-          <Text className="text-xs text-slate-500">heard as: "{draft.name_as_heard}"</Text>
+          <Text className="text-xs text-slate-500">
+            heard as: "{draft.name_as_heard}"
+          </Text>
         )}
       </View>
 
       <View className="gap-3">
-        <Field label="Medication name" disabled={readOnly} value={draft.name || ""} onChangeText={(t) => set("name", t)} />
+        <Field
+          label="Medication name"
+          disabled={readOnly}
+          value={draft.name || ""}
+          onChangeText={(t) => set("name", t)}
+        />
 
         <View className="flex-row flex-wrap gap-3">
-          <Field label="Strength" disabled={readOnly} value={draft.strength || ""} onChangeText={(t) => set("strength", t)} placeholder="e.g. 500 mg" />
-          <Field label="Dose" disabled={readOnly} value={draft.dose || ""} onChangeText={(t) => set("dose", t)} placeholder="e.g. 1 tablet" />
+          <Field
+            label="Strength"
+            disabled={readOnly}
+            value={draft.strength || ""}
+            onChangeText={(t) => set("strength", t)}
+            placeholder="e.g. 500 mg"
+          />
+          <Field
+            label="Dose"
+            disabled={readOnly}
+            value={draft.dose || ""}
+            onChangeText={(t) => set("dose", t)}
+            placeholder="e.g. 1 tablet"
+          />
         </View>
         <View className="flex-row flex-wrap gap-3">
-          <Field label="Frequency" disabled={readOnly} value={draft.frequency || ""} onChangeText={(t) => set("frequency", t)} placeholder="e.g. twice daily" />
-          <Field label="Timing" disabled={readOnly} value={draft.timing || ""} onChangeText={(t) => set("timing", t)} placeholder="morning / night" />
+          <Field
+            label="Frequency"
+            disabled={readOnly}
+            value={draft.frequency || ""}
+            onChangeText={(t) => set("frequency", t)}
+            placeholder="e.g. twice daily"
+          />
+          <Field
+            label="Timing"
+            disabled={readOnly}
+            value={draft.timing || ""}
+            onChangeText={(t) => set("timing", t)}
+            placeholder="morning / night"
+          />
         </View>
 
         <View className="flex-row flex-wrap gap-3">
-          <Field label="Food instruction" disabled={readOnly} value={draft.food_instruction || ""} onChangeText={(t) => set("food_instruction", t)} placeholder="after food" />
-          <Field label="Duration" disabled={readOnly} value={draft.duration || ""} onChangeText={(t) => set("duration", t)} placeholder="e.g. 5 days" />
+          <Field
+            label="Food instruction"
+            disabled={readOnly}
+            value={draft.food_instruction || ""}
+            onChangeText={(t) => set("food_instruction", t)}
+            placeholder="after food"
+          />
+          <Field
+            label="Duration"
+            disabled={readOnly}
+            value={draft.duration || ""}
+            onChangeText={(t) => set("duration", t)}
+            placeholder="e.g. 5 days"
+          />
         </View>
-        <Field label="Route / form" disabled value={[draft.route, draft.dosage_form].filter(Boolean).join(" / ")} placeholder="oral / tablet" />
+        <Field
+          label="Route / form"
+          disabled
+          value={[draft.route, draft.dosage_form].filter(Boolean).join(" / ")}
+          placeholder="oral / tablet"
+        />
 
-        <Field label="Notes" disabled={readOnly} value={draft.notes || ""} onChangeText={(t) => set("notes", t)} />
+        <Field
+          label="Notes"
+          disabled={readOnly}
+          value={draft.notes || ""}
+          onChangeText={(t) => set("notes", t)}
+        />
       </View>
 
       {!readOnly && (
         <View className="mt-3 flex-row flex-wrap gap-2">
-          <Button variant="secondary" size="sm" disabled={busy} onPress={() => save(false)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            onPress={() => save(false)}
+          >
             Save edits
           </Button>
-          <Button variant="secondary" size="sm" disabled={busy} onPress={lookup}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            onPress={lookup}
+          >
             Look up real medicine matches
           </Button>
-          <Button size="sm" disabled={busy} onPress={() => save(true)}>
-            Confirm identity & instructions
-          </Button>
+          {canConfirm && (
+            <Button size="sm" disabled={busy} onPress={() => save(true)}>
+              Confirm identity & instructions
+            </Button>
+          )}
           <Button variant="danger" size="sm" disabled={busy} onPress={remove}>
             Remove
           </Button>
         </View>
       )}
 
-      {err && <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>}
+      {err && (
+        <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>
+      )}
 
       {suggestions?.length > 0 && (
         <View className="mt-3 gap-1.5 border-t border-dashed border-slate-200 pt-3">
           <Text className="text-xs text-slate-500">
-            Candidate matches from installed RxNorm/DRAP terminology. Choosing one does not confirm a dose.
+            Candidate matches from installed RxNorm/DRAP terminology. Choosing
+            one does not confirm a dose.
           </Text>
           {suggestions.map((s, i) => (
             <Pressable
@@ -208,12 +295,19 @@ export default function MedicationEditor({
             >
               <Text className="text-sm font-semibold text-slate-900">
                 {s.display_name || s.generic_name}
-                {s.source && <Text className="text-xs font-normal text-slate-500"> {"\u00b7"} {s.source.toUpperCase()}</Text>}
+                {s.source && (
+                  <Text className="text-xs font-normal text-slate-500">
+                    {" "}
+                    {"\u00b7"} {s.source.toUpperCase()}
+                  </Text>
+                )}
               </Text>
               <Text className="text-xs text-slate-500">
                 {s.brand_name ? `Brand: ${s.brand_name} \u00b7 ` : ""}
                 {s.strength || ""}
-                {s.score != null ? ` \u00b7 match ${Math.round(s.score * 100)}%` : ""}
+                {s.score != null
+                  ? ` \u00b7 match ${Math.round(s.score * 100)}%`
+                  : ""}
               </Text>
             </Pressable>
           ))}

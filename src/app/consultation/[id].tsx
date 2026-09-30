@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import Recorder from "@/components/Recorder";
 import PipelineStepper from "@/components/consultation/PipelineStepper";
 import DoctorReview from "@/components/consultation/DoctorReview";
+import AssistantReview from "@/components/consultation/AssistantReview";
 import PatientSummaryView from "@/components/consultation/PatientSummaryView";
 import NextVisitCard from "@/components/consultation/NextVisitCard";
 import ReportRequestCard from "@/components/consultation/ReportRequestCard";
@@ -120,7 +121,7 @@ export default function ConsultationView() {
     // Only doctor-side roles have directory access to the patient list -
     // harmless to call for a patient viewing their own page too, but
     // skipped since it would just 403.
-    if (user.role !== "patient") {
+    if (user.role !== "patient" && user.role !== "assistant") {
       api
         .listPatients()
         .then(setPatients)
@@ -161,7 +162,7 @@ export default function ConsultationView() {
   const isReviewer =
     user.role === "cross_check_doctor" ||
     (user.role === "doctor" && !isTreating);
-
+  const isAssistant = user.role === "assistant";
   const processing = PROCESSING.has(c.status);
   // Created but never actually recorded - e.g. the doctor navigated away
   // before finishing the recording. Give the treating doctor a way to
@@ -294,7 +295,14 @@ export default function ConsultationView() {
             {viewedDoctor.specialty && ` \u00b7 ${viewedDoctor.specialty}`}
           </Text>
         )}
-
+        {isAssistant && viewedDoctor && (
+          <Text className="-mt-2 mb-4 text-sm text-slate-600">
+            Doctor:{" "}
+            <Text className="font-semibold text-slate-900">
+              {viewedDoctor.full_name}
+            </Text>
+          </Text>
+        )}
         {user.role !== "patient" && viewedPatient && (
           <Text className="-mt-2 mb-4 text-sm text-slate-600">
             Patient:{" "}
@@ -428,7 +436,15 @@ export default function ConsultationView() {
             requiresAssistantReview={requiresAssistantReview}
           />
         )}
-
+        {isAssistant && !processing && (
+          <AssistantReview
+            c={c}
+            setC={setC}
+            meds={meds}
+            busy={busy}
+            addMed={addMed}
+          />
+        )}
         {user?.role === "patient" && (
           <PatientSummaryView
             c={c}
