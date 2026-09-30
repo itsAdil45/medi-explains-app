@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { homeRouteFor } from "@/lib/navigation";
 import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Speech from "expo-speech";
@@ -279,10 +280,10 @@ export default function PhoneSignIn() {
     setBusy(true);
     try {
       const t = await api.phoneLoginVerify(phoneDigits, codeDigits);
-      await applySession(t);
+      const signedIn = await applySession(t);
       if (!mountedRef.current) return;
       await safeSpeak("You're signed in.", 2000);
-      router.replace("/");
+      router.replace(homeRouteFor(signedIn.role));
     } catch (e: any) {
       if (!mountedRef.current) return;
       setBusy(false);
@@ -331,8 +332,8 @@ export default function PhoneSignIn() {
     setBusy(true);
     try {
       const t = await api.phoneLoginVerify(phone.trim(), otp.trim());
-      await applySession(t);
-      router.replace("/");
+      const signedIn = await applySession(t);
+      router.replace(homeRouteFor(signedIn.role));
     } catch (e: any) {
       setErr(e.message);
     } finally {

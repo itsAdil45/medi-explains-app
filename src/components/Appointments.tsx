@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
-  Modal,
   TextInput,
 } from "react-native";
 import {
@@ -17,12 +16,12 @@ import {
   Link2,
   UserX,
   X,
-  Check,
 } from "lucide-react-native";
 import { router } from "expo-router";
 import { api } from "../api/client";
 import { useAuth } from "../api/auth";
 import SlotPicker from "../components/ui/SlotPicker";
+import { SelectField } from "./ui/select";
 import PatientAppointments from "./ui/PatientAppointments";
 import {
   APPT_STATUS_STYLE,
@@ -78,100 +77,6 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function SelectField({
-  label,
-  value,
-  placeholder,
-  options,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  options: { id: string | number; label: string }[];
-  onChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-
-  const selected = options.find((option) => String(option.id) === value);
-
-  return (
-    <View className="mb-4">
-      <Text className="mb-1.5 text-sm font-medium text-slate-700">{label}</Text>
-
-      <Pressable
-        disabled={disabled}
-        onPress={() => setOpen(true)}
-        className={`min-h-11 justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 ${
-          disabled ? "opacity-50" : ""
-        }`}
-      >
-        <Text
-          className={`text-sm ${
-            selected ? "text-slate-900" : "text-slate-400"
-          }`}
-        >
-          {selected?.label || placeholder}
-        </Text>
-      </Pressable>
-
-      <Modal
-        visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
-      >
-        <Pressable
-          className="flex-1 justify-center bg-black/40 px-6"
-          onPress={() => setOpen(false)}
-        >
-          <Pressable
-            className="max-h-[70%] rounded-2xl bg-white p-4"
-            onPress={(event) => event.stopPropagation()}
-          >
-            <Text className="mb-3 text-base font-semibold text-slate-900">
-              {label}
-            </Text>
-
-            <ScrollView>
-              {options.map((option) => {
-                const selectedOption = String(option.id) === value;
-
-                return (
-                  <Pressable
-                    key={String(option.id)}
-                    onPress={() => {
-                      onChange(String(option.id));
-                      setOpen(false);
-                    }}
-                    className={`flex-row items-center rounded-lg px-3 py-3 ${
-                      selectedOption ? "bg-purple-50" : "active:bg-slate-50"
-                    }`}
-                  >
-                    <Text
-                      className={`flex-1 text-sm ${
-                        selectedOption
-                          ? "font-semibold text-[#792884]"
-                          : "text-slate-800"
-                      }`}
-                    >
-                      {option.label}
-                    </Text>
-
-                    {selectedOption && <Check size={17} color="#792884" />}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
-  );
-}
-
 export default function Appointments() {
   const { user } = useAuth();
 
@@ -222,6 +127,15 @@ function StaffAppointments() {
       .catch(() => {});
   }, [isStaff, activeClinicId]);
 
+  // The picked doctor may not work at the newly selected clinic - make
+  // front-desk staff pick again from that clinic's doctors.
+  const [prevClinicId, setPrevClinicId] = useState(activeClinicId);
+  if (prevClinicId !== activeClinicId) {
+    setPrevClinicId(activeClinicId);
+    if (isStaff) setDoctorId("");
+    setSlot(null);
+  }
+
   const refresh = useCallback(async () => {
     if (!doctorId) {
       setItems([]);
@@ -239,7 +153,10 @@ function StaffAppointments() {
     } catch (e: any) {
       setErr(e?.message || "Failed to load appointments");
     }
-  }, [doctorId, date, isStaff]);
+    // activeClinicId isn't read here, but it's sent as X-Clinic-Id on every
+    // request - a clinic switch has to refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctorId, date, isStaff, activeClinicId]);
 
   useEffect(() => {
     refresh();

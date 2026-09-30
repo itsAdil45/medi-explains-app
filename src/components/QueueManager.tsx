@@ -150,6 +150,13 @@ export default function QueueManager() {
       .catch(() => {});
   }, [isReceptionist, activeClinicId]);
 
+  // The picked doctor may not work at the newly selected clinic.
+  const [prevClinicId, setPrevClinicId] = useState(activeClinicId);
+  if (prevClinicId !== activeClinicId) {
+    setPrevClinicId(activeClinicId);
+    if (isReceptionist) setDoctorId("");
+  }
+
   const effectiveDoctorId = isReceptionist ? doctorId : String(user?.id || "");
 
   const refresh = useCallback(async () => {
@@ -165,7 +172,9 @@ export default function QueueManager() {
     } catch (e: any) {
       setErr(e?.message || "Failed to load queue");
     }
-  }, [effectiveDoctorId]);
+    // Sent as X-Clinic-Id on every request - a clinic switch has to refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveDoctorId, activeClinicId]);
 
   useEffect(() => {
     refresh();

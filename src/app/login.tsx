@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, Redirect, useRouter } from "expo-router";
+import { homeRouteFor } from "@/lib/navigation";
 import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stethoscope, Mail, Lock, Mic } from "lucide-react-native";
@@ -49,14 +50,14 @@ export default function Login() {
 
   // Native mimic of App.jsx's <RedirectIfAuthed> wrapper around /login - an
   // already-signed-in user shouldn't see the login form again.
-  if (!authLoading && user) return <Redirect href="/" />;
+  if (!authLoading && user) return <Redirect href={homeRouteFor(user.role)} />;
 
   async function submit() {
     setErr(null);
     setLoading(true);
     try {
-      await login(email, password);
-      router.replace("/");
+      const signedIn = await login(email, password);
+      router.replace(homeRouteFor(signedIn.role));
     } catch (e: any) {
       setErr(e.message);
     } finally {

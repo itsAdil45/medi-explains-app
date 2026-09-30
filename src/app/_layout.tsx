@@ -1,6 +1,5 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useColorScheme } from "react-native";
 import "../../global.css";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { AuthProvider } from "@/api/auth";
@@ -8,32 +7,47 @@ import { AccessibilityProvider } from "@/context/AccessibilityContext";
 
 SplashScreen.preventAutoHideAsync();
 
+// Every screen is drawn light, so the navigator's own background has to be
+// light too - with the dark theme it flashed black behind each transition.
+const theme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: "#ffffff" },
+};
+
 // Native equivalent of main.jsx's <BrowserRouter><AuthProvider><AccessibilityProvider><App /></...></...> -
 // expo-router's file-based Stack stands in for BrowserRouter/App's <Routes>.
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={theme}>
       <AnimatedSplashOverlay />
       <AuthProvider>
         <AccessibilityProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen
-              name="login"
-              options={{ presentation: "modal", headerShown: false }}
-            />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              // Same smooth horizontal push on Android as on iOS (Android's
+              // default is a fade-from-bottom that reads as a jump).
+              animation: "ios_from_right",
+              contentStyle: { backgroundColor: "#ffffff" },
+              // Screens underneath stop re-rendering while covered.
+              freezeOnBlur: true,
+            }}
+          >
+            {/* Switching between the signed-out home, onboarding and the
+                signed-in tabs replaces the whole screen - a fade reads as
+                intended there, a slide as a glitch. */}
+            <Stack.Screen name="index" options={{ animation: "fade" }} />
+            <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
+            <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+            <Stack.Screen name="login" options={{ presentation: "modal" }} />
             <Stack.Screen
               name="phone-sign-in"
-              options={{ presentation: "modal", headerShown: false }}
+              options={{ presentation: "modal" }}
             />
+            <Stack.Screen name="profile" />
             <Stack.Screen
               name="consultation/[id]"
-              options={{
-                headerShown: false,
-                title: "Consultation",
-                headerBackTitle: "white",
-              }}
+              options={{ title: "Consultation" }}
             />
           </Stack>
         </AccessibilityProvider>

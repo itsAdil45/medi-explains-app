@@ -21,6 +21,8 @@ const STATUS_COMPLETED: Record<string, number> = {
   safety_check: 2,
   drafted: 2,
   safety_review_required: 2,
+  assistant_review: 2,
+  assistant_reviewed: 2,
   approved: 3,
   translating: 4,
   released: 5,

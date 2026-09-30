@@ -557,6 +557,15 @@ export default function MedicationAlarmManager() {
     }
   }
 
+  // Close the reminder without recording taken/snoozed/skipped: silences it
+  // and hides it. The dose stays pending on the server; this exact due time
+  // won't ring again (firedRef), but a snooze or the next dose still will.
+  function dismissActive() {
+    stopAlarmLoop();
+    stopVoiceLoop();
+    setActive(null);
+  }
+
   async function repeatAllVoice() {
     if (!active || !voiceEnabled) return;
     stopVoiceLoop();
@@ -681,168 +690,186 @@ export default function MedicationAlarmManager() {
       )}
 
       {/* FULL SCREEN REMINDER */}
-      <Modal visible={!!active} animationType="fade" transparent statusBarTranslucent>
+      <Modal
+        visible={!!active}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        onRequestClose={dismissActive}
+      >
         <View className="flex-1 items-center justify-center bg-black/70 p-5">
-          <ScrollView className="max-h-[92%] w-full max-w-[440px] rounded-2xl bg-white" contentContainerClassName="p-6">
-            <Text className="text-center text-5xl">{"\ud83d\udc8a"}</Text>
-            <Text className="mt-2 text-center text-lg font-bold text-slate-900">Medication Reminder</Text>
+          <View className="max-h-[92%] w-full max-w-[440px] overflow-hidden rounded-2xl bg-white">
+            <Pressable
+              onPress={dismissActive}
+              accessibilityRole="button"
+              accessibilityLabel="Close medication reminder"
+              hitSlop={8}
+              style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
+              className="size-9 items-center justify-center rounded-full bg-slate-100 active:bg-slate-200"
+            >
+              <Text className="text-base text-slate-600">{"\u2715"}</Text>
+            </Pressable>
+            <ScrollView contentContainerClassName="p-6">
+              <Text className="text-center text-5xl">{"\ud83d\udc8a"}</Text>
+              <Text className="mt-2 text-center text-lg font-bold text-slate-900">Medication Reminder</Text>
 
-            {active && (
-              <>
-                <Text className="mb-4 mt-2 text-center text-sm text-slate-700">
-                  <Text className="font-bold">Date: </Text>
-                  {formatDate(active.dueAt)} {"\u00b7 "}
-                  <Text className="font-bold">Time: </Text>
-                  {formatTime(active.dueAt)}
-                </Text>
+              {active && (
+                <>
+                  <Text className="mb-4 mt-2 text-center text-sm text-slate-700">
+                    <Text className="font-bold">Date: </Text>
+                    {formatDate(active.dueAt)} {"\u00b7 "}
+                    <Text className="font-bold">Time: </Text>
+                    {formatTime(active.dueAt)}
+                  </Text>
 
-                {active.reminders.length > 1 && (
-                  <View className="mb-4 rounded-lg bg-sky-50 px-3 py-2.5">
-                    <Text className="text-center text-xs text-sky-900">
-                      {active.reminders.length} medicines are due now. They are shown and spoken one at a time.
-                    </Text>
-                  </View>
-                )}
+                  {active.reminders.length > 1 && (
+                    <View className="mb-4 rounded-lg bg-sky-50 px-3 py-2.5">
+                      <Text className="text-center text-xs text-sky-900">
+                        {active.reminders.length} medicines are due now. They are shown and spoken one at a time.
+                      </Text>
+                    </View>
+                  )}
 
-                <View className="gap-3.5">
-                  {active.reminders.map((reminder, index) => {
-                    const s = reminder.schedule;
-                    return (
-                      <View key={reminder.event.id} className="rounded-xl border border-slate-200 p-4">
-                        <Text className="mb-2 text-sm font-bold text-slate-900">
-                          {active.reminders.length > 1 ? `Medicine ${index + 1}: ` : ""}
-                          {s.medication_name}
-                        </Text>
-                        <View className="gap-1">
-                          <Text className="text-sm text-slate-800">
-                            <Text className="font-bold">Dose / quantity: </Text>
-                            {s.dose || s.strength || "\u2014"}
+                  <View className="gap-3.5">
+                    {active.reminders.map((reminder, index) => {
+                      const s = reminder.schedule;
+                      return (
+                        <View key={reminder.event.id} className="rounded-xl border border-slate-200 p-4">
+                          <Text className="mb-2 text-sm font-bold text-slate-900">
+                            {active.reminders.length > 1 ? `Medicine ${index + 1}: ` : ""}
+                            {s.medication_name}
                           </Text>
-                          {s.frequency && (
+                          <View className="gap-1">
                             <Text className="text-sm text-slate-800">
-                              <Text className="font-bold">Frequency: </Text>
-                              {s.frequency}
+                              <Text className="font-bold">Dose / quantity: </Text>
+                              {s.dose || s.strength || "\u2014"}
                             </Text>
-                          )}
-                          {s.timing && (
+                            {s.frequency && (
+                              <Text className="text-sm text-slate-800">
+                                <Text className="font-bold">Frequency: </Text>
+                                {s.frequency}
+                              </Text>
+                            )}
+                            {s.timing && (
+                              <Text className="text-sm text-slate-800">
+                                <Text className="font-bold">Timing: </Text>
+                                {s.timing}
+                              </Text>
+                            )}
+                            {s.food_instruction && (
+                              <Text className="text-sm text-slate-800">
+                                <Text className="font-bold">Food: </Text>
+                                {s.food_instruction}
+                              </Text>
+                            )}
+                            {s.duration && (
+                              <Text className="text-sm text-slate-800">
+                                <Text className="font-bold">Duration: </Text>
+                                {s.duration}
+                              </Text>
+                            )}
+                            {s.route && (
+                              <Text className="text-sm text-slate-800">
+                                <Text className="font-bold">Route: </Text>
+                                {s.route}
+                              </Text>
+                            )}
                             <Text className="text-sm text-slate-800">
-                              <Text className="font-bold">Timing: </Text>
-                              {s.timing}
+                              <Text className="font-bold">Reminder time: </Text>
+                              {formatTime(reminder.dueAt)}
                             </Text>
-                          )}
-                          {s.food_instruction && (
-                            <Text className="text-sm text-slate-800">
-                              <Text className="font-bold">Food: </Text>
-                              {s.food_instruction}
-                            </Text>
-                          )}
-                          {s.duration && (
-                            <Text className="text-sm text-slate-800">
-                              <Text className="font-bold">Duration: </Text>
-                              {s.duration}
-                            </Text>
-                          )}
-                          {s.route && (
-                            <Text className="text-sm text-slate-800">
-                              <Text className="font-bold">Route: </Text>
-                              {s.route}
-                            </Text>
-                          )}
-                          <Text className="text-sm text-slate-800">
-                            <Text className="font-bold">Reminder time: </Text>
-                            {formatTime(reminder.dueAt)}
-                          </Text>
-                        </View>
+                          </View>
 
-                        <View className="mt-3 flex-row flex-wrap gap-2">
-                          <Pressable
-                            disabled={busy}
-                            onPress={() => actionOne(reminder, "taken")}
-                            className={`rounded-lg bg-[#4ab96a] px-3 py-2 ${busy ? "opacity-50" : ""}`}
-                          >
-                            <Text className="text-xs font-semibold text-white">{"\u2713"} Taken</Text>
-                          </Pressable>
-                          <Pressable
-                            disabled={busy}
-                            onPress={() => actionOne(reminder, "snooze")}
-                            className={`rounded-lg bg-slate-100 px-3 py-2 ${busy ? "opacity-50" : ""}`}
-                          >
-                            <Text className="text-xs font-semibold text-slate-700">{"\u23f0"} Snooze 10 min</Text>
-                          </Pressable>
-                          <Pressable
-                            disabled={busy}
-                            onPress={() => actionOne(reminder, "skip")}
-                            className={`rounded-lg bg-slate-100 px-3 py-2 ${busy ? "opacity-50" : ""}`}
-                          >
-                            <Text className="text-xs font-semibold text-slate-700">Skip</Text>
-                          </Pressable>
-                          {voiceEnabled && (
+                          <View className="mt-3 flex-row flex-wrap gap-2">
                             <Pressable
                               disabled={busy}
-                              onPress={() => playVoice(reminder.event.id)}
+                              onPress={() => actionOne(reminder, "taken")}
+                              className={`rounded-lg bg-[#4ab96a] px-3 py-2 ${busy ? "opacity-50" : ""}`}
+                            >
+                              <Text className="text-xs font-semibold text-white">{"\u2713"} Taken</Text>
+                            </Pressable>
+                            <Pressable
+                              disabled={busy}
+                              onPress={() => actionOne(reminder, "snooze")}
                               className={`rounded-lg bg-slate-100 px-3 py-2 ${busy ? "opacity-50" : ""}`}
                             >
-                              <Text className="text-xs font-semibold text-slate-700">
-                                {"\ud83d\udde3\ufe0f"} Repeat this medicine
-                              </Text>
+                              <Text className="text-xs font-semibold text-slate-700">{"\u23f0"} Snooze 10 min</Text>
                             </Pressable>
-                          )}
+                            <Pressable
+                              disabled={busy}
+                              onPress={() => actionOne(reminder, "skip")}
+                              className={`rounded-lg bg-slate-100 px-3 py-2 ${busy ? "opacity-50" : ""}`}
+                            >
+                              <Text className="text-xs font-semibold text-slate-700">Skip</Text>
+                            </Pressable>
+                            {voiceEnabled && (
+                              <Pressable
+                                disabled={busy}
+                                onPress={() => playVoice(reminder.event.id)}
+                                className={`rounded-lg bg-slate-100 px-3 py-2 ${busy ? "opacity-50" : ""}`}
+                              >
+                                <Text className="text-xs font-semibold text-slate-700">
+                                  {"\ud83d\udde3\ufe0f"} Repeat this medicine
+                                </Text>
+                              </Pressable>
+                            )}
+                          </View>
                         </View>
+                      );
+                    })}
+                  </View>
+
+                  {active.reminders.length > 1 && (
+                    <>
+                      <View className="my-5 h-px bg-slate-200" />
+                      <Text className="text-center text-sm font-bold text-slate-900">
+                        Actions for all due medicines
+                      </Text>
+                      <View className="mt-3 flex-row flex-wrap justify-center gap-2.5">
+                        <Pressable
+                          disabled={busy}
+                          onPress={() => actionAll("taken")}
+                          className={`rounded-lg bg-[#4ab96a] px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
+                        >
+                          <Text className="text-xs font-semibold text-white">{"\u2713"} Taken all</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={busy}
+                          onPress={() => actionAll("snooze")}
+                          className={`rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
+                        >
+                          <Text className="text-xs font-semibold text-slate-700">{"\u23f0"} Snooze all 10 min</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={busy}
+                          onPress={() => actionAll("skip")}
+                          className={`rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
+                        >
+                          <Text className="text-xs font-semibold text-slate-700">Skip all</Text>
+                        </Pressable>
                       </View>
-                    );
-                  })}
-                </View>
+                    </>
+                  )}
 
-                {active.reminders.length > 1 && (
-                  <>
-                    <View className="my-5 h-px bg-slate-200" />
-                    <Text className="text-center text-sm font-bold text-slate-900">
-                      Actions for all due medicines
-                    </Text>
-                    <View className="mt-3 flex-row flex-wrap justify-center gap-2.5">
-                      <Pressable
-                        disabled={busy}
-                        onPress={() => actionAll("taken")}
-                        className={`rounded-lg bg-[#4ab96a] px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
-                      >
-                        <Text className="text-xs font-semibold text-white">{"\u2713"} Taken all</Text>
-                      </Pressable>
-                      <Pressable
-                        disabled={busy}
-                        onPress={() => actionAll("snooze")}
-                        className={`rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
-                      >
-                        <Text className="text-xs font-semibold text-slate-700">{"\u23f0"} Snooze all 10 min</Text>
-                      </Pressable>
-                      <Pressable
-                        disabled={busy}
-                        onPress={() => actionAll("skip")}
-                        className={`rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
-                      >
-                        <Text className="text-xs font-semibold text-slate-700">Skip all</Text>
-                      </Pressable>
-                    </View>
-                  </>
-                )}
+                  {voiceEnabled && (
+                    <Pressable
+                      disabled={busy}
+                      onPress={repeatAllVoice}
+                      className={`mt-4 items-center rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
+                    >
+                      <Text className="text-xs font-semibold text-slate-700">
+                        {"\ud83d\udde3\ufe0f"} Repeat all medicines
+                      </Text>
+                    </Pressable>
+                  )}
 
-                {voiceEnabled && (
-                  <Pressable
-                    disabled={busy}
-                    onPress={repeatAllVoice}
-                    className={`mt-4 items-center rounded-lg bg-slate-100 px-4 py-2.5 ${busy ? "opacity-50" : ""}`}
-                  >
-                    <Text className="text-xs font-semibold text-slate-700">
-                      {"\ud83d\udde3\ufe0f"} Repeat all medicines
-                    </Text>
-                  </Pressable>
-                )}
-
-                <Text className="mt-4 text-center text-xs text-slate-500">
-                  Snooze stops that medicine's current reminder and schedules it again for 10 minutes later.
-                </Text>
-              </>
-            )}
-          </ScrollView>
+                  <Text className="mt-4 text-center text-xs text-slate-500">
+                    Snooze stops that medicine's current reminder and schedules it again for 10 minutes later.
+                  </Text>
+                </>
+              )}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </>

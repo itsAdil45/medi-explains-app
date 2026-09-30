@@ -23,6 +23,8 @@ import ReportRequestCard from "@/components/consultation/ReportRequestCard";
 import ReportUploadCard from "@/components/consultation/ReportUploadCard";
 import BillCard from "@/components/consultation/BillCard";
 import CrossCheckReview from "@/components/consultation/CrossCheckReview";
+import AssistantReviewPanel from "@/components/consultation/AssistantReviewPanel";
+import ActionErrorModal from "@/components/consultation/ActionErrorModal";
 import MedicationAlarmManager from "@/components/MedicationAlarmManager";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import QueueWidget from "@/components/QueueWidget";
@@ -53,7 +55,11 @@ export default function ConsultationView() {
   const { user, loading: authLoading } = useAuth();
 
   const [c, setC] = useState<any>(null);
+  // Couldn't load the consultation at all - replaces the page.
   const [err, setErr] = useState<string | null>(null);
+  // An action (approve, release, ...) was refused - shown in a modal over
+  // the page so the doctor doesn't lose their place.
+  const [actionErr, setActionErr] = useState<string | null>(null);
   const [edit, setEdit] = useState("");
 
   const [reviews, setReviews] = useState<any[]>([]);
@@ -129,21 +135,22 @@ export default function ConsultationView() {
 
   if (!authLoading && !user) return <Redirect href="/login" />;
 
-  if (err) {
-    return (
-      <View className="flex-1 bg-white px-5 py-6">
-        <View className="rounded-lg bg-red-50 px-4 py-3">
-          <Text className="text-sm font-medium text-red-700">{err}</Text>
-        </View>
-      </View>
-    );
-  }
-
   if (!c) {
     return (
-      <View className="flex-1 items-center justify-center gap-2 bg-white">
-        <ActivityIndicator />
-        <Text className="text-sm text-slate-500">Loading…</Text>
+      <View className="flex-1 bg-white">
+        <Nav back />
+        {err ? (
+          <View className="px-5 py-6">
+            <View className="rounded-lg bg-red-50 px-4 py-3">
+              <Text className="text-sm font-medium text-red-700">{err}</Text>
+            </View>
+          </View>
+        ) : (
+          <View className="flex-1 items-center justify-center gap-2">
+            <ActivityIndicator />
+            <Text className="text-sm text-slate-500">Loading…</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -169,21 +176,28 @@ export default function ConsultationView() {
   const rtl = langMeta?.rtl;
 
   const transcriptStale = Boolean(c.model_metadata?.reviewed_transcript_stale);
-  const editableSummary = ["drafted", "safety_review_required"].includes(
-    c.status,
-  );
+  const editableSummary = [
+    "drafted",
+    "safety_review_required",
+    "assistant_reviewed",
+  ].includes(c.status);
   // Do not allow the doctor to approve/edit an old patient summary after changing the transcript.
   const summaryReadyForReview = editableSummary && !transcriptStale;
 
+  // The treating doctor's setting decides the approval gate, whoever is viewing.
+  const treatingDoctor =
+    c.doctor_id === user?.id ? user : doctors.find((d) => d.id === c.doctor_id);
+  const requiresAssistantReview = !!treatingDoctor?.requires_assistant_review;
+
   async function act(fn: () => Promise<any>) {
     setBusy(true);
-    setErr(null);
+    setActionErr(null);
     try {
       const result = await fn();
       if (result) setC(result);
       return result;
     } catch (e: any) {
-      setErr(e.message);
+      setActionErr(e.message);
     } finally {
       setBusy(false);
     }
@@ -207,7 +221,7 @@ export default function ConsultationView() {
       const names = incomplete
         .map((m: any) => m.name || m.canonical_name || "Medication")
         .join(", ");
-      setErr(
+      setActionErr(
         `Cannot release yet. Complete frequency and duration for: ${names}. AI Healthcare+ will not invent medication duration.`,
       );
       return;
@@ -247,7 +261,7 @@ export default function ConsultationView() {
 
   // Fetches the PDF with the auth header, then opens the OS share sheet so the
   // patient can save or send it. Throws on failure and lets PatientSummaryView
-  // show the message inline - setErr here would replace this whole screen.
+  // show the message inline, next to the download button.
   async function downloadPdf() {
     const file = await downloadAuthedFile(
       api.pdfUrl(c.id),
@@ -261,8 +275,8 @@ export default function ConsultationView() {
   const viewedPatient = patients.find((p) => p.id === c.patient_id);
 
   return (
-    <>
-      <Nav />
+    <View className="flex-1 bg-white">
+      <Nav back />
       <ScrollView className="flex-1 bg-white px-5 py-6">
         <View className="mb-4 flex-row items-center gap-3">
           <Text className="text-xl font-bold tracking-tight text-slate-900">
@@ -293,6 +307,15 @@ export default function ConsultationView() {
         )}
 
         <PipelineStepper status={c.status} />
+
+        {isTreating && !processing && (
+          <AssistantReviewPanel
+            c={c}
+            setC={setC}
+            transcriptStale={transcriptStale}
+            requiresReview={requiresAssistantReview}
+          />
+        )}
 
         {isTreating && c.released_at && <NextVisitCard c={c} setC={setC} />}
         {isTreating && c.released_at && <ReportRequestCard c={c} setC={setC} />}
@@ -402,6 +425,7 @@ export default function ConsultationView() {
             refresh={refresh}
             reviews={reviews}
             doctors={doctors}
+            requiresAssistantReview={requiresAssistantReview}
           />
         )}
 
@@ -428,6 +452,12 @@ export default function ConsultationView() {
       <MedicationAlarmManager />
       <VoiceAssistant />
       <QueueWidget />
-    </>
+
+      <ActionErrorModal
+        message={actionErr}
+        meds={meds}
+        onClose={() => setActionErr(null)}
+      />
+    </View>
   );
 }

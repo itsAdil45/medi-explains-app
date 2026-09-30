@@ -43,6 +43,8 @@ const STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
   translating: { label: "Translating", tone: "sky" },
   drafted: { label: "Drafted", tone: "amber" },
   safety_review_required: { label: "Needs safety review", tone: "amber" },
+  assistant_review: { label: "With assistant", tone: "violet" },
+  assistant_reviewed: { label: "Assistant reviewed", tone: "amber" },
   approved: { label: "Approved", tone: "violet" },
   released: { label: "Released", tone: "green" },
   under_cross_check: { label: "Under cross-check", tone: "green" },

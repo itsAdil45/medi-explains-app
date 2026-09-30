@@ -6,10 +6,9 @@ import {
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { Link, Redirect, useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Nav from "@/components/Nav";
 import {
   Mic,
   Languages,
@@ -24,7 +23,7 @@ import HomeNav from "@/components/HomeNav";
 // import Footer from "@/components/Footer";
 import ContactSection from "@/components/ContactSection";
 import { useAuth } from "@/api/auth";
-import Dashboard from "@/components/Dashboard";
+import { homeRouteFor } from "@/lib/navigation";
 import { ONBOARDING_SEEN_KEY } from "@/constants/onboarding";
 
 const CAPABILITIES = [
@@ -210,7 +209,7 @@ function MarketingHome() {
 }
 
 // Native equivalent of App.jsx's RootRoute - "/" is the public marketing
-// home for a signed-out visitor and the dashboard for a signed-in one. A
+// home for a signed-out visitor; a signed-in one is sent into the tabs. A
 // first-time signed-out visitor sees /onboarding instead, once.
 export default function Index() {
   const { user, loading } = useAuth();
@@ -230,12 +229,7 @@ export default function Index() {
 
   if (!user && !onboardingSeen) return <Redirect href="/onboarding" />;
 
-  return user ? (
-    <>
-      <Nav />
-      <Dashboard />
-    </>
-  ) : (
-    <MarketingHome />
-  );
+  if (user) return <Redirect href={homeRouteFor(user.role)} />;
+
+  return <MarketingHome />;
 }

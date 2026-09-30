@@ -23,6 +23,7 @@ import {
 
 import { api } from "@/api/client";
 import { useAuth } from "@/api/auth";
+import AssistantsCard from "@/components/AssistantsCard";
 
 function Field({
   icon: Icon,
@@ -565,6 +566,8 @@ export default function Profile() {
             )}
           </Pressable>
         </SectionCard>
+
+        {isTreatingDoctor && <AssistantsCard />}
       </View>
 
       {/* Bottom spacing */}

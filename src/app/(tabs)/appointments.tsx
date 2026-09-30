@@ -1,12 +1,13 @@
-import { ScrollView } from "react-native";
+import { View } from "react-native";
 
 import Appointments from "@/components/Appointments";
 import Nav from "@/components/Nav";
-export default function Queue() {
+
+export default function AppointmentsScreen() {
   return (
-    <ScrollView>
+    <View className="flex-1 bg-white">
       <Nav />
       <Appointments />
-    </ScrollView>
+    </View>
   );
 }

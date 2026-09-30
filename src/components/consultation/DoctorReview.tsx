@@ -23,13 +23,21 @@ import MedicationEditor from "@/components/MedicationEditor";
 import TranscriptReview from "@/components/TranscriptReview";
 import SafetyChecks from "@/components/SafetyChecks";
 
+// 'assistant_review': the assistant holds the prescription, so the doctor's
+// own edits are locked until it comes back (or is recalled).
 const LOCKED_AFTER = [
+  "assistant_review",
   "approved",
   "released",
   "under_cross_check",
   "cross_checked",
 ];
-const MED_LOCKED_AFTER = ["released", "under_cross_check", "cross_checked"];
+const MED_LOCKED_AFTER = [
+  "assistant_review",
+  "released",
+  "under_cross_check",
+  "cross_checked",
+];
 
 const TABS = [
   { key: "transcript", label: "Transcript" },
@@ -83,6 +91,7 @@ export default function DoctorReview({
   refresh,
   reviews,
   doctors,
+  requiresAssistantReview = false,
 }: {
   c: any;
   setC: (c: any) => void;
@@ -102,6 +111,7 @@ export default function DoctorReview({
   refresh: () => void;
   reviews: any[];
   doctors: any[];
+  requiresAssistantReview?: boolean;
 }) {
   const [activeTab, setActiveTab] =
     useState<(typeof TABS)[number]["key"]>("transcript");
@@ -146,6 +156,10 @@ export default function DoctorReview({
   // just showing an error. Mirrors what the backend gates on: /approve
   // blocks on unresolved safety warnings, /release blocks on unconfirmed
   // medication identity.
+  // Mirrors approve()'s gate for a doctor who requires assistant review.
+  const awaitingAssistant =
+    requiresAssistantReview && c.status !== "assistant_reviewed";
+
   function handleApproveClick() {
     if (safetyCounts.needReview > 0) {
       setActiveTab("safety");
@@ -476,14 +490,26 @@ export default function DoctorReview({
           the doctor isn't currently looking at. */}
       <View className="gap-4.5 border-t border-slate-200 pt-5">
         {editableSummary && (
-          <Button onPress={handleApproveClick} disabled={busy} loading={busy}>
-            <View className="flex-row items-center gap-1.5">
-              <CheckCircle2 size={16} color="#fff" />
-              <Text className="text-sm font-semibold text-white">
-                {busy ? "Working\u2026" : "Approve reviewed patient summary"}
+          <View className="gap-2">
+            <Button
+              onPress={handleApproveClick}
+              disabled={busy || awaitingAssistant}
+              loading={busy}
+            >
+              <View className="flex-row items-center gap-1.5">
+                <CheckCircle2 size={16} color="#fff" />
+                <Text className="text-sm font-semibold text-white">
+                  {busy ? "Working\u2026" : "Approve reviewed patient summary"}
+                </Text>
+              </View>
+            </Button>
+            {awaitingAssistant && (
+              <Text className="text-center text-xs text-slate-500">
+                Your assistant needs to review this prescription before you can
+                approve it.
               </Text>
-            </View>
-          </Button>
+            )}
+          </View>
         )}
 
         {c.status === "approved" && (

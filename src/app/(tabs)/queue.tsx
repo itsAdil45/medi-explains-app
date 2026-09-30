@@ -1,12 +1,13 @@
-import { ScrollView } from "react-native";
+import { View } from "react-native";
 
 import QueueManager from "@/components/QueueManager";
 import Nav from "@/components/Nav";
+
 export default function Queue() {
   return (
-    <ScrollView>
+    <View className="flex-1 bg-white">
       <Nav />
       <QueueManager />
-    </ScrollView>
+    </View>
   );
 }

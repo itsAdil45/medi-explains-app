@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, Redirect, useRouter } from "expo-router";
-import Nav from "./Nav";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, Redirect, useFocusEffect, useRouter } from "expo-router";
 import {
   View,
   Text,
@@ -23,9 +22,11 @@ import { StatusBadge } from "@/components/ui/badge";
 import MedicationAlarmManager from "@/components/MedicationAlarmManager";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import QueueWidget from "./QueueWidget";
+// assistant_reviewed: back from the assistant, waiting on the doctor.
 const NEEDS_ATTENTION = [
   "safety_review_required",
   "drafted",
+  "assistant_reviewed",
   "processing_failed",
   "rejected",
 ];
@@ -60,7 +61,7 @@ const TABS = [
 ] as const;
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, activeClinicId } = useAuth();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,13 +78,42 @@ export default function Dashboard() {
   const showsDoctorColumn = user.role === "patient";
   const showsPatientColumn = isTreatingDoctor || isReviewingDoctor;
 
+  // Consultations are scoped to the active clinic (sent as X-Clinic-Id), so
+  // a clinic switch refetches - showing the spinner, since the old list
+  // belongs to a different clinic.
+  const [prevClinicId, setPrevClinicId] = useState(activeClinicId);
+  if (prevClinicId !== activeClinicId) {
+    setPrevClinicId(activeClinicId);
+    setLoading(true);
+    setErr(null);
+  }
   useEffect(() => {
+    let alive = true;
     api
       .listConsultations()
-      .then(setItems)
-      .catch((e) => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((list) => alive && setItems(list))
+      .catch((e) => alive && setErr(e.message))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [activeClinicId]);
+
+  // Tabs stay mounted, so quietly refresh whenever the dashboard comes back
+  // into view (e.g. after approving a consultation).
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      api
+        .listConsultations()
+        .then(setItems)
+        .catch(() => {});
+    }, []),
+  );
 
   // A consultation only carries doctor_id/patient_id - resolve the other
   // party's name from the existing directory endpoints rather than adding

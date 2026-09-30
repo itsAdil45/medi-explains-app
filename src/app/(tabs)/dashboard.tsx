@@ -1,13 +1,13 @@
 import { View } from "react-native";
 
-import Profile from "@/components/Profile";
+import Dashboard from "@/components/Dashboard";
 import Nav from "@/components/Nav";
 
-export default function ProfileScreen() {
+export default function DashboardScreen() {
   return (
     <View className="flex-1 bg-white">
-      <Nav back />
-      <Profile />
+      <Nav />
+      <Dashboard />
     </View>
   );
 }
