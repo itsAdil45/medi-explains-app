@@ -121,7 +121,7 @@ export default function ConsultationView() {
     // Only doctor-side roles have directory access to the patient list -
     // harmless to call for a patient viewing their own page too, but
     // skipped since it would just 403.
-    if (user.role !== "patient" && user.role !== "assistant") {
+    if (user?.role !== "patient" && user?.role !== "assistant") {
       api
         .listPatients()
         .then(setPatients)
@@ -157,12 +157,12 @@ export default function ConsultationView() {
   }
 
   const isTreating =
-    (user.role === "doctor" || user.role === "admin") &&
-    (user.role === "admin" || c.doctor_id === user.id);
+    (user?.role === "doctor" || user?.role === "admin") &&
+    (user?.role === "admin" || c.doctor_id === user?.id);
   const isReviewer =
-    user.role === "cross_check_doctor" ||
-    (user.role === "doctor" && !isTreating);
-  const isAssistant = user.role === "assistant";
+    user?.role === "cross_check_doctor" ||
+    (user?.role === "doctor" && !isTreating);
+  const isAssistant = user?.role === "assistant";
   const processing = PROCESSING.has(c.status);
   // Created but never actually recorded - e.g. the doctor navigated away
   // before finishing the recording. Give the treating doctor a way to
@@ -286,7 +286,7 @@ export default function ConsultationView() {
           <StatusBadge status={c.status} />
         </View>
 
-        {user.role === "patient" && viewedDoctor && (
+        {user?.role === "patient" && viewedDoctor && (
           <Text className="-mt-2 mb-4 text-sm text-slate-600">
             Doctor:{" "}
             <Text className="font-semibold text-slate-900">
@@ -303,7 +303,7 @@ export default function ConsultationView() {
             </Text>
           </Text>
         )}
-        {user.role !== "patient" && viewedPatient && (
+        {user?.role !== "patient" && viewedPatient && (
           <Text className="-mt-2 mb-4 text-sm text-slate-600">
             Patient:{" "}
             <Text className="font-semibold text-slate-900">
@@ -328,9 +328,9 @@ export default function ConsultationView() {
         {isTreating && c.released_at && <NextVisitCard c={c} setC={setC} />}
         {isTreating && c.released_at && <ReportRequestCard c={c} setC={setC} />}
         {isTreating && c.released_at && (
-          <BillCard c={c} setC={setC} doctorFee={user.doctor_fee} />
+          <BillCard c={c} setC={setC} doctorFee={user?.doctor_fee} />
         )}
-        {user.role === "patient" && c.report_requested_at && (
+        {user?.role === "patient" && c.report_requested_at && (
           <ReportUploadCard c={c} setC={setC} />
         )}
 
