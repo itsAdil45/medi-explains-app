@@ -89,7 +89,9 @@ function MarketingHome() {
     p.muted = true;
     p.play();
   });
-
+  useEffect(() => {
+    player.play();
+  }, [player]);
   return (
     <ScrollView className="flex-1 bg-white">
       <HomeNav />
