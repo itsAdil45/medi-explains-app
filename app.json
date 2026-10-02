@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "medi-explains-app",
-    "slug": "medi-explains-app",
+    "name": "AI HealthCare",
+    "slug": "AI HealthCare",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

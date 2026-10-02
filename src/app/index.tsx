@@ -198,10 +198,10 @@ function MarketingHome() {
         </View>
       </View>
 
-      <Text className="mx-auto mb-2 text-center text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+      {/* <Text className="mx-auto mb-2 text-center text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
         Contact Us
       </Text>
-      <ContactSection />
+      <ContactSection /> */}
 
       {/* <Footer /> */}
     </ScrollView>
@@ -216,7 +216,9 @@ export default function Index() {
   const [onboardingSeen, setOnboardingSeen] = useState<boolean | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_SEEN_KEY).then((v) => setOnboardingSeen(v === "true"));
+    AsyncStorage.getItem(ONBOARDING_SEEN_KEY).then((v) =>
+      setOnboardingSeen(v === "true"),
+    );
   }, []);
 
   if (loading || (!user && onboardingSeen === null)) {
