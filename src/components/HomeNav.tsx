@@ -4,13 +4,18 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle } from "react-native-svg";
 import { Stethoscope, Mic } from "lucide-react-native";
 import { useWakePhraseSignIn } from "../hooks/useWakePhraseSignIn";
+import VoiceLanguagePicker from "@/voice/VoiceLanguagePicker";
+import { useVoiceStrings } from "@/voice/speech";
+import { isRtl, useDeviceVoiceLang } from "@/voice/voiceLang";
 
 export default function HomeNav() {
+  const [voiceLang, setVoiceLang] = useDeviceVoiceLang();
+  const vt = useVoiceStrings(voiceLang);
   const {
     supported: wakeSupported,
     listening: wakeListening,
     denied: wakeDenied,
-  } = useWakePhraseSignIn();
+  } = useWakePhraseSignIn(voiceLang);
 
   return (
     <View className="relative overflow-hidden px-6 pt-4">
@@ -71,7 +76,11 @@ export default function HomeNav() {
           </View>
 
           {wakeSupported && !wakeDenied && (
-            <View className="mt-6 w-fit flex-row items-center gap-2 self-center rounded-lg bg-white/10 px-3 py-2">
+            <View
+              className={`mt-6 w-fit flex-wrap items-center justify-center gap-2 self-center rounded-lg bg-white/10 px-3 py-2 ${
+                isRtl(voiceLang) ? "flex-row-reverse" : "flex-row"
+              }`}
+            >
               <View className="relative size-2 items-center justify-center">
                 {wakeListening && (
                   <View className="absolute size-2 animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -81,9 +90,18 @@ export default function HomeNav() {
                 />
               </View>
               <Mic size={14} color="rgba(255,255,255,0.7)" strokeWidth={2} />
-              <Text className="text-xs text-white/70">
-                Say "Hey Doctor" to sign in by voice, hands-free
+              <Text
+                className="text-xs text-white/70"
+                style={{ writingDirection: isRtl(voiceLang) ? "rtl" : "ltr" }}
+              >
+                {vt("wake_banner")}
               </Text>
+              <VoiceLanguagePicker
+                value={voiceLang}
+                onChange={setVoiceLang}
+                label={vt("ps_language")}
+                tone="light"
+              />
             </View>
           )}
         </View>

@@ -161,6 +161,14 @@ export const api = {
     return request("POST", "/auth/phone/verify", { body: { phone, otp } });
   },
 
+  // patient voice UI strings + their spoken clips (see src/voice/speech.ts)
+  async voicePrompts(lang: string) {
+    return request("GET", "/voice-prompts", { query: { lang } });
+  },
+  voicePromptAudioUrl(key: string, lang: string, version: string | number) {
+    return `${BASE}/api/voice-prompts/${encodeURIComponent(key)}/audio?lang=${encodeURIComponent(lang)}&v=${encodeURIComponent(String(version))}`;
+  },
+
   // languages
   async languages() {
     return request("GET", "/languages");
@@ -533,6 +541,9 @@ export const api = {
   },
   symptomsAudioUrl(cid: Id) {
     return `${BASE}/api/consultations/${cid}/symptoms-audio`;
+  },
+  medicineAudioUrl(cid: Id, mid: Id) {
+    return `${BASE}/api/consultations/${cid}/medicine-audio/${mid}`;
   },
 
   // public share (no auth needed)

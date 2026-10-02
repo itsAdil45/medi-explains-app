@@ -6,6 +6,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Stethoscope, Mail, Lock, Mic } from "lucide-react-native";
 import { useAuth } from "@/api/auth";
 import { useWakePhraseSignIn } from "@/hooks/useWakePhraseSignIn";
+import VoiceLanguagePicker from "@/voice/VoiceLanguagePicker";
+import { useVoiceStrings } from "@/voice/speech";
+import { isRtl, useDeviceVoiceLang } from "@/voice/voiceLang";
 
 const DEMO_ACCOUNTS = [
   { email: "doctor@demo.com", role: "Doctor", tone: "green" as const },
@@ -42,11 +45,15 @@ export default function Login() {
   // (right after a successful sign-in), which is one fewer hook than the
   // previous render and is exactly what threw "Rendered fewer hooks than
   // expected" here.
+  // Pre-login there's no profile language yet - the device remembers the
+  // last patient's, and the picker below changes it.
+  const [voiceLang, setVoiceLang] = useDeviceVoiceLang();
+  const vt = useVoiceStrings(voiceLang);
   const {
     supported: wakeSupported,
     listening: wakeListening,
     denied: wakeDenied,
-  } = useWakePhraseSignIn();
+  } = useWakePhraseSignIn(voiceLang);
 
   // Native mimic of App.jsx's <RedirectIfAuthed> wrapper around /login - an
   // already-signed-in user shouldn't see the login form again.
@@ -104,7 +111,11 @@ export default function Login() {
           </Text>
 
           {wakeSupported && !wakeDenied && (
-            <View className="mb-5 flex-row items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+            <View
+              className={`mb-5 flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 ${
+                isRtl(voiceLang) ? "flex-row-reverse" : "flex-row"
+              }`}
+            >
               <View className="relative size-2 items-center justify-center">
                 {wakeListening && (
                   <View className="absolute size-2 animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -114,9 +125,13 @@ export default function Login() {
                 />
               </View>
               <Mic size={14} color="#64748b" strokeWidth={2} />
-              <Text className="text-xs text-slate-500">
-                Say "Hey Doctor" to sign in by voice, hands-free
+              <Text
+                className="flex-1 text-xs text-slate-500"
+                style={{ writingDirection: isRtl(voiceLang) ? "rtl" : "ltr" }}
+              >
+                {vt("wake_banner")}
               </Text>
+              <VoiceLanguagePicker value={voiceLang} onChange={setVoiceLang} label={vt("ps_language")} />
             </View>
           )}
 

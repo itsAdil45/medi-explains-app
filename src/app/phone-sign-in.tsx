@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { homeRouteFor } from "@/lib/navigation";
-import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
+import { AppState, View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Speech from "expo-speech";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -11,72 +10,78 @@ import {
 import { Stethoscope, Phone, KeyRound, Mic } from "lucide-react-native";
 import { api } from "@/api/client";
 import { useAuth } from "@/api/auth";
+import VoiceLanguagePicker from "@/voice/VoiceLanguagePicker";
+import {
+  DIGIT_KEYS,
+  cancelSpeech,
+  isSpeaking,
+  prefetchPrompts,
+  speakDigits,
+  speakPrompt,
+  useVoiceStrings,
+} from "@/voice/speech";
+import {
+  digitRecognitionLocales,
+  extractDigits,
+  isRtl,
+  markLocaleUnsupported,
+  recognitionLocale,
+  useDeviceVoiceLang,
+} from "@/voice/voiceLang";
 
-// Same digit-word normalisation as the website's PhoneSignIn.jsx - Chrome's
-// (and the native platform recognizers') transcription of spoken digits
-// varies between numerals and words depending on cadence.
-const WORD_TO_DIGIT: Record<string, string> = {
-  zero: "0",
-  oh: "0",
-  one: "1",
-  two: "2",
-  three: "3",
-  four: "4",
-  for: "4",
-  five: "5",
-  six: "6",
-  seven: "7",
-  eight: "8",
-  nine: "9",
-};
+// Everything the voice flow can say, warmed on arrival. A prompt that is
+// still being synthesised when it's needed holds the flow up (speakPrompt
+// waits rather than switch to an English voice), so warm all of them - each
+// is a one-time synthesis per language, cached server-side and on the
+// device after that.
+const FLOW_PROMPTS = [
+  "ps_intro", "ps_phone_retry", "ps_phone_failed", "ps_calling_number",
+  "ps_calling_you", "ps_code_retry", "ps_code_failed", "ps_signed_in",
+  "ps_code_invalid", "ps_error", "ps_say_code_hint", "va_mic_required", ...DIGIT_KEYS,
+];
 
-function extractDigits(transcript: string) {
-  const words = (transcript || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/);
-  let digits = "";
-  for (const w of words) {
-    if (/^\d+$/.test(w)) digits += w;
-    else if (WORD_TO_DIGIT[w]) digits += WORD_TO_DIGIT[w];
-  }
-  return digits;
-}
+// The speaker is still playing the tail of a prompt for a moment after it
+// reports finishing (Bluetooth especially) - starting the mic straight away
+// fed the prompt's last words into the recognizer as the answer.
+const AFTER_PROMPT_MS = 500;
+// Enough digits for an answer isn't necessarily the whole answer - a
+// patient pausing mid-number ("0300... 1234567") or a longer code than the
+// minimum. Wait this long for more before taking it.
+const SETTLE_MS = 1500;
 
-// Native equivalent of speakAndWait in PhoneSignIn.jsx - resolves once the
-// utterance actually finishes (with a timeout fallback), so the voice-driven
-// flow doesn't start listening while still mid-prompt. expo-speech's
-// Speech.speak() is callback-based rather than promise-based, hence the wrap.
-function speakAndWait(text: string, maxWaitMs = 4000): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      resolve();
-    };
-    try {
-      Speech.stop();
-      Speech.speak(text, { onDone: finish, onError: finish, onStopped: finish });
-    } catch {
-      finish();
-      return;
-    }
-    setTimeout(finish, maxWaitMs);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function waitForForeground() {
+  if (AppState.currentState === "active") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        sub.remove();
+        resolve();
+      }
+    });
   });
 }
 
 type CaptureState = {
   minDigits: number;
+  timeoutMs: number;
+  locale: string;
   transcript: string;
+  // Set by this session's own "start" event. The recognizer is shared app-
+  // wide, so a late "end" from a previous session (the Login wake listener,
+  // or this screen's last attempt) must not settle this one.
+  started: boolean;
   settled: boolean;
   resolve: (digits: string) => void;
   reject: (err: Error) => void;
   timeoutId: ReturnType<typeof setTimeout>;
+  settleId: ReturnType<typeof setTimeout> | null;
 };
 
 // Phone-call sign-in for a patient who can't independently find and tap an
-// emailed magic link - mimicked from the website's PhoneSignIn.jsx.
+// emailed magic link - mimicked from the website's PhoneSignIn.jsx. Keyed
+// by phone number deliberately: a patient knows their own number by heart.
 export default function PhoneSignIn() {
   const { applySession } = useAuth();
   const router = useRouter();
@@ -90,37 +95,68 @@ export default function PhoneSignIn() {
   const [info, setInfo] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
+  // What the recognizer last heard - shown during the voice flow so a
+  // mis-heard number is visible instead of just a silent retry.
+  const [heard, setHeard] = useState("");
+
+  // The patient's language, remembered from their last sign-in on this
+  // device (or picked here) - every prompt is spoken and every answer
+  // listened for in it. The voice flow is one long async function, so it
+  // reads the language through a ref: picking another one mid-flow switches
+  // what it says and listens for from the next prompt on.
+  const [lang, setLang] = useDeviceVoiceLang();
+  const t = useVoiceStrings(lang);
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
+  const rtl = isRtl(lang);
+  const dirStyle = { writingDirection: rtl ? "rtl" : "ltr" } as const;
+
+  useEffect(() => {
+    prefetchPrompts(lang, FLOW_PROMPTS);
+  }, [lang]);
 
   const voiceStartedRef = useRef(false);
   const mountedRef = useRef(true);
+  const manualTriesRef = useRef(0);
+  // Bumped each time the app leaves the foreground - an attempt that spans
+  // one was cut off by the OS, not failed by the patient.
+  const backgroundCountRef = useRef(0);
   // Bridges expo-speech-recognition's event-based API (one set of listeners
   // for the module's whole lifetime) into the one-shot Promise shape
-  // captureDigits() needs, mirroring what a fresh `new SpeechRecognitionCtor()`
+  // captureDigits() needs, mirroring what a fresh `new SpeechRecognition()`
   // gave the web version for free per call.
   const captureRef = useRef<CaptureState | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        backgroundCountRef.current++;
+        // The OS stops the recognizer anyway; stopping it here makes the
+        // current attempt end now rather than on a timeout.
+        try {
+          ExpoSpeechRecognitionModule.stop();
+        } catch {}
+      }
+    });
     return () => {
       mountedRef.current = false;
+      sub.remove();
       try {
-        ExpoSpeechRecognitionModule.stop();
+        ExpoSpeechRecognitionModule.abort();
       } catch {}
-      Speech.stop();
+      cancelSpeech();
     };
   }, []);
 
-  // runVoiceFlow/captureWithRetries are long-running async functions with
-  // many awaited steps (speak a prompt, wait for it to finish, listen,
-  // speak the next prompt...). Leaving the screen doesn't cancel a promise
-  // chain already in flight - without this, a retry prompt like "Sorry, I
-  // didn't catch that" could still fire after the patient had already
-  // backed out, because the code driving it had no way to know the screen
-  // was gone. Every speakAndWait call in that flow goes through this
-  // instead of calling it directly.
-  function safeSpeak(text: string, maxWaitMs = 4000) {
+  // Every prompt in the flows below goes through this - leaving the screen
+  // doesn't cancel a promise chain already in flight, and a retry prompt
+  // could otherwise still play after the patient had backed out.
+  function prompt(key: string, maxWaitMs?: number) {
     if (!mountedRef.current) return Promise.resolve();
-    return speakAndWait(text, maxWaitMs);
+    return speakPrompt(langRef.current, key, maxWaitMs ? { maxWaitMs } : undefined);
   }
 
   // Arrived here via the "Hey Doctor" wake phrase (useWakePhraseSignIn) -
@@ -144,6 +180,7 @@ export default function PhoneSignIn() {
     if (!c || c.settled) return;
     c.settled = true;
     clearTimeout(c.timeoutId);
+    if (c.settleId) clearTimeout(c.settleId);
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch {}
@@ -153,34 +190,51 @@ export default function PhoneSignIn() {
   // Promise-based capture, shared by the manual "Speak your code" button and
   // the automatic voice flow below. Continuous + a generous timeout - the
   // real call needs time to ring, connect, and start talking before the
-  // patient has anything to repeat.
-  function captureDigits(minDigits = 4, timeoutMs = 25000): Promise<string> {
+  // patient has anything to repeat. locale: which recognizer to listen with
+  // (see digitRecognitionLocales); defaults to the patient's language.
+  function captureDigits(minDigits = 4, timeoutMs = 25000, locale: string | null = null): Promise<string> {
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(
-        () => finishCapture(() => reject(new Error("timeout"))),
-        timeoutMs,
-      );
-      captureRef.current = { minDigits, transcript: "", settled: false, resolve, reject, timeoutId };
+      const lc = locale || recognitionLocale(langRef.current);
+      const timeoutId = setTimeout(() => finishCapture(() => reject(new Error("timeout"))), timeoutMs);
+      captureRef.current = {
+        minDigits, timeoutMs, locale: lc, transcript: "", started: false, settled: false,
+        resolve, reject, timeoutId, settleId: null,
+      };
       try {
-        ExpoSpeechRecognitionModule.start({
-          lang: "en-US",
-          interimResults: false,
-          continuous: true,
-        });
+        ExpoSpeechRecognitionModule.start({ lang: lc, interimResults: false, continuous: true });
       } catch (e) {
         finishCapture(() => reject(e instanceof Error ? e : new Error("start-failed")));
       }
     });
   }
 
-  useSpeechRecognitionEvent("start", () => setListening(true));
+  useSpeechRecognitionEvent("start", () => {
+    const c = captureRef.current;
+    if (!c || c.settled) return;
+    c.started = true;
+    setListening(true);
+    setHeard("");
+  });
 
   useSpeechRecognitionEvent("result", (event) => {
     const c = captureRef.current;
-    if (!c || c.settled) return;
+    if (!c || c.settled || !c.started) return;
+    // The app's own prompt, picked up by the mic - not the patient.
+    if (isSpeaking()) return;
+    if (!event.isFinal) return;
     c.transcript += " " + (event.results?.[0]?.transcript || "");
+    setHeard(c.transcript.trim());
     const digits = extractDigits(c.transcript);
-    if (digits.length >= c.minDigits) finishCapture(() => c.resolve(digits));
+    if (c.settleId) clearTimeout(c.settleId);
+    c.settleId = null;
+    if (digits.length >= c.minDigits)
+      c.settleId = setTimeout(() => finishCapture(() => c.resolve(extractDigits(c.transcript))), SETTLE_MS);
+    // A whole sentence with not one digit in it: most likely the number was
+    // said in a language this recognizer isn't listening for - give up now
+    // so the next attempt can try the other one, instead of sitting out the
+    // full timeout.
+    else if (!digits && c.transcript.trim().split(/\s+/).length >= 3)
+      finishCapture(() => c.reject(new Error(`heard:${c.transcript.trim()}`)));
   });
 
   useSpeechRecognitionEvent("error", (event) => {
@@ -188,26 +242,48 @@ export default function PhoneSignIn() {
     if (!c || c.settled) return;
     // Expected while still waiting for the call to connect - keep listening.
     if (event.error === "no-speech" || event.error === "aborted") return;
+    // This device can't recognise that language - start over on the next
+    // locale in its fallback chain (voiceLang.ts).
+    if (event.error === "language-not-supported" && markLocaleUnsupported(c.locale)) {
+      finishCapture(() => c.resolve(captureDigits(c.minDigits, c.timeoutMs) as unknown as string));
+      return;
+    }
     finishCapture(() => c.reject(new Error(event.error || "speech-error")));
   });
 
   useSpeechRecognitionEvent("end", () => {
-    setListening(false);
     const c = captureRef.current;
-    if (!c || c.settled) return;
+    if (!c || !c.started) return;
+    setListening(false);
+    if (c.settled) return;
+    // Only a complete answer counts - a phone number cut short used to be
+    // accepted as-is, and the flow then rang whatever partial number it had.
     const digits = extractDigits(c.transcript);
-    if (digits) finishCapture(() => c.resolve(digits));
+    if (digits.length >= c.minDigits) finishCapture(() => c.resolve(digits));
     else finishCapture(() => c.reject(new Error(`heard:${c.transcript.trim()}`)));
   });
 
-  async function captureWithRetries(attempts: number, retryPrompt: string, minDigits = 4) {
+  async function captureWithRetries(attempts: number, retryPromptKey: string, minDigits = 4) {
+    const locales = digitRecognitionLocales(langRef.current);
     for (let i = 0; i < attempts; i++) {
+      // A backgrounded app can't listen - wait for the patient to come back.
+      await waitForForeground();
       if (!mountedRef.current) return null;
+      const backgroundBefore = backgroundCountRef.current;
       try {
-        return await captureDigits(minDigits);
+        await sleep(AFTER_PROMPT_MS);
+        return await captureDigits(minDigits, undefined, locales[i % locales.length]);
       } catch {
         if (!mountedRef.current) return null;
-        if (i < attempts - 1) await safeSpeak(retryPrompt, 3000);
+        if (backgroundCountRef.current !== backgroundBefore) {
+          // Switched away mid-attempt (or answered the call on this same
+          // phone): doesn't use up a try. Ask again once they're back.
+          await waitForForeground();
+          await prompt(retryPromptKey, 3000);
+          i--;
+          continue;
+        }
+        if (i < attempts - 1) await prompt(retryPromptKey, 3000);
       }
     }
     return null;
@@ -217,28 +293,24 @@ export default function PhoneSignIn() {
     const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!mountedRef.current) return;
     if (!perm.granted) {
-      await safeSpeak(
-        "I need microphone access to sign you in by voice. Please type your phone number in below.",
-      );
+      setErr(t("va_mic_required"));
+      await prompt("va_mic_required");
       return;
     }
 
-    await safeSpeak("I'll help you sign in. Please say your phone number now.", 4000);
+    await prompt("ps_intro");
     if (!mountedRef.current) return;
-    const phoneDigits = await captureWithRetries(
-      3,
-      "Sorry, I didn't catch that. Please say your phone number again.",
-      10,
-    );
+    // Four tries, so English and the patient's language get two each.
+    const phoneDigits = await captureWithRetries(4, "ps_phone_retry", 10);
     if (!mountedRef.current) return;
     if (!phoneDigits) {
-      await safeSpeak(
-        "I couldn't understand your phone number. Please type it in below, or say Hey Doctor to try again.",
-      );
+      await prompt("ps_phone_failed");
       return;
     }
     setPhone(phoneDigits);
-    await safeSpeak(`Calling ${phoneDigits.split("").join(" ")} now.`, 3500);
+    await prompt("ps_calling_number", 2500);
+    if (!mountedRef.current) return;
+    await speakDigits(langRef.current, phoneDigits);
     if (!mountedRef.current) return;
 
     setErr(null);
@@ -250,7 +322,7 @@ export default function PhoneSignIn() {
       if (!mountedRef.current) return;
       setBusy(false);
       setErr(e.message);
-      await safeSpeak(`Something went wrong. ${e.message}`, 4000);
+      await prompt("ps_error");
       return;
     }
     if (!mountedRef.current) return;
@@ -258,20 +330,12 @@ export default function PhoneSignIn() {
     setStep("code");
     setBusy(false);
 
-    await safeSpeak(
-      "I'm calling you now. When you hear your code on the call, say the digits here.",
-      4000,
-    );
+    await prompt("ps_calling_you");
     if (!mountedRef.current) return;
-    const codeDigits = await captureWithRetries(
-      3,
-      "Sorry, I didn't catch that. Please say the code again.",
-    );
+    const codeDigits = await captureWithRetries(4, "ps_code_retry");
     if (!mountedRef.current) return;
     if (!codeDigits) {
-      await safeSpeak(
-        "I couldn't catch the code. Please type it in below, or tap Speak your code to try again.",
-      );
+      await prompt("ps_code_failed");
       return;
     }
     setOtp(codeDigits);
@@ -279,16 +343,16 @@ export default function PhoneSignIn() {
     setErr(null);
     setBusy(true);
     try {
-      const t = await api.phoneLoginVerify(phoneDigits, codeDigits);
-      const signedIn = await applySession(t);
+      const tok = await api.phoneLoginVerify(phoneDigits, codeDigits);
+      const signedIn = await applySession(tok);
       if (!mountedRef.current) return;
-      await safeSpeak("You're signed in.", 2000);
+      await prompt("ps_signed_in", 2000);
       router.replace(homeRouteFor(signedIn.role));
     } catch (e: any) {
       if (!mountedRef.current) return;
       setBusy(false);
       setErr(e.message);
-      await safeSpeak(`That code didn't work. ${e.message}`, 3500);
+      await prompt("ps_code_invalid", 3500);
     }
   }
 
@@ -297,17 +361,20 @@ export default function PhoneSignIn() {
     setErr(null);
     const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!perm.granted) {
-      setErr("Microphone permission is needed to speak your code. Try again or type it in.");
+      setErr(t("va_mic_required"));
       return;
     }
     try {
-      const digits = await captureDigits();
+      // Each press alternates English / the patient's language, like the
+      // automatic flow's retries.
+      const locales = digitRecognitionLocales(lang);
+      const digits = await captureDigits(4, undefined, locales[manualTriesRef.current++ % locales.length]);
       setOtp(digits);
     } catch (e: any) {
       if (typeof e?.message === "string" && e.message.startsWith("heard:")) {
-        setErr(`Heard "${e.message.slice(6)}" - couldn't make out a code. Try again or type it in.`);
+        setErr(t("ps_heard_no_code", { text: e.message.slice(6) }));
       } else {
-        setErr("Couldn't hear you clearly. Try again or type the code in.");
+        setErr(t("ps_cant_hear"));
       }
     }
   }
@@ -319,7 +386,7 @@ export default function PhoneSignIn() {
       const res = await api.phoneLoginStart(phone.trim());
       setInfo(res.message);
       setStep("code");
-      if (mountedRef.current) Speech.speak("Say the code you heard on the call, one digit at a time.");
+      prompt("ps_say_code_hint").catch(() => {});
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -331,8 +398,8 @@ export default function PhoneSignIn() {
     setErr(null);
     setBusy(true);
     try {
-      const t = await api.phoneLoginVerify(phone.trim(), otp.trim());
-      const signedIn = await applySession(t);
+      const tok = await api.phoneLoginVerify(phone.trim(), otp.trim());
+      const signedIn = await applySession(tok);
       router.replace(homeRouteFor(signedIn.role));
     } catch (e: any) {
       setErr(e.message);
@@ -367,30 +434,37 @@ export default function PhoneSignIn() {
         </View>
 
         <View className="w-full max-w-[400px] rounded-2xl bg-white p-8 pt-9 shadow-xl">
-          <Text className="mb-1.5 text-xl font-bold tracking-tight text-slate-900">
-            Sign in by phone call
-          </Text>
-          <Text className="mb-4 text-sm text-slate-500">
-            {step === "phone"
-              ? "We'll call your phone and read your sign-in code aloud - no password or email needed."
-              : "Listen for the code read out on the call, then enter it below."}
+          <View className={`mb-1.5 items-start justify-between gap-3 ${rtl ? "flex-row-reverse" : "flex-row"}`}>
+            <Text className="flex-1 text-xl font-bold tracking-tight text-slate-900" style={dirStyle}>
+              {t("ps_title")}
+            </Text>
+            <VoiceLanguagePicker value={lang} onChange={setLang} label={t("ps_language")} />
+          </View>
+          <Text className="mb-4 text-sm text-slate-500" style={dirStyle}>
+            {step === "phone" ? t("ps_sub_phone") : t("ps_sub_code")}
           </Text>
 
           {voiceActive && (
-            <View className="mb-5 flex-row items-center gap-2 rounded-lg bg-[#4ab96a]/10 px-3 py-2.5">
+            <View
+              accessibilityLiveRegion="polite"
+              className={`mb-5 items-center gap-2 rounded-lg bg-[#4ab96a]/10 px-3 py-2.5 ${rtl ? "flex-row-reverse" : "flex-row"}`}
+            >
               <Mic size={14} color="#2f8f4e" strokeWidth={2} />
-              <Text className="text-xs font-medium text-[#2f8f4e]">
-                {listening
-                  ? "Listening…"
-                  : "Voice sign-in in progress - you can also type below"}
+              <Text className="flex-1 text-xs font-medium text-[#2f8f4e]" style={dirStyle}>
+                {listening ? t("ps_listening") : t("ps_voice_in_progress")}
               </Text>
             </View>
+          )}
+          {voiceActive && !!heard && (
+            <Text className="-mt-3 mb-5 text-xs text-slate-500" style={dirStyle} accessibilityLiveRegion="polite">
+              {t("va_heard", { text: heard })} ({extractDigits(heard) || "—"})
+            </Text>
           )}
 
           {step === "phone" && (
             <View>
-              <Text className="mb-1.5 text-xs font-semibold text-slate-700">
-                Your phone number
+              <Text className="mb-1.5 text-xs font-semibold text-slate-700" style={dirStyle}>
+                {t("ps_phone_label")}
               </Text>
               <View className="mb-1.5 flex-row items-center rounded-lg border border-slate-200 px-3">
                 <Phone size={16} color="#94a3b8" />
@@ -405,7 +479,11 @@ export default function PhoneSignIn() {
                 />
               </View>
 
-              {err && <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>}
+              {err && (
+                <Text className="mt-2 text-xs font-medium text-red-600" style={dirStyle} accessibilityRole="alert">
+                  {err}
+                </Text>
+              )}
 
               <Pressable
                 onPress={requestCall}
@@ -417,7 +495,7 @@ export default function PhoneSignIn() {
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text className="text-sm font-semibold text-white">Call me with my code</Text>
+                  <Text className="text-sm font-semibold text-white">{t("ps_call_me")}</Text>
                 )}
               </Pressable>
             </View>
@@ -427,12 +505,16 @@ export default function PhoneSignIn() {
             <View>
               {info && (
                 <View className="mb-4 rounded-lg bg-emerald-50 px-4 py-3.5">
-                  <Text className="text-[13px] text-emerald-900">{info}</Text>
+                  {/* The backend's own wording is English-only; this is the
+                      same deliberately non-committal message. */}
+                  <Text className="text-[13px] text-emerald-900" style={dirStyle}>
+                    {t("ps_call_sent")}
+                  </Text>
                 </View>
               )}
 
-              <Text className="mb-1.5 text-xs font-semibold text-slate-700">
-                Code from the call
+              <Text className="mb-1.5 text-xs font-semibold text-slate-700" style={dirStyle}>
+                {t("ps_code_label")}
               </Text>
               <View className="mb-1.5 flex-row items-center rounded-lg border border-slate-200 px-3">
                 <KeyRound size={16} color="#94a3b8" />
@@ -460,11 +542,15 @@ export default function PhoneSignIn() {
                     listening ? "text-[#2f8f4e]" : "text-slate-600"
                   }`}
                 >
-                  {listening ? "Listening… say the digits" : "Speak your code instead"}
+                  {listening ? t("ps_listening_digits") : t("ps_speak_code")}
                 </Text>
               </Pressable>
 
-              {err && <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>}
+              {err && (
+                <Text className="mt-2 text-xs font-medium text-red-600" style={dirStyle} accessibilityRole="alert">
+                  {err}
+                </Text>
+              )}
 
               <Pressable
                 onPress={verifyCode}
@@ -476,7 +562,7 @@ export default function PhoneSignIn() {
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text className="text-sm font-semibold text-white">Sign in</Text>
+                  <Text className="text-sm font-semibold text-white">{t("ps_sign_in")}</Text>
                 )}
               </Pressable>
 
@@ -490,7 +576,7 @@ export default function PhoneSignIn() {
                 className="mt-3 items-center"
               >
                 <Text className="text-xs font-semibold text-[#2f8f4e]">
-                  Didn't get a call? Try again
+                  {t("ps_retry_call")}
                 </Text>
               </Pressable>
             </View>
@@ -499,7 +585,7 @@ export default function PhoneSignIn() {
           <View className="mt-4 items-center">
             <Link href="/login" asChild>
               <Pressable>
-                <Text className="text-xs font-semibold text-[#4ab96a]">Back to sign in</Text>
+                <Text className="text-xs font-semibold text-[#4ab96a]">{t("ps_back")}</Text>
               </Pressable>
             </Link>
           </View>

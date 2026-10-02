@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import { AppState, View, Text, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsFocused } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Speech from "expo-speech";
 import {
   createAudioPlayer,
+  setAudioModeAsync,
   useAudioRecorder,
   AudioModule,
   RecordingPresets,
@@ -20,108 +21,76 @@ import { api } from "@/api/client";
 import { useAuth } from "@/api/auth";
 import { useAccessibility } from "@/context/AccessibilityContext";
 import { downloadAuthedFile } from "@/api/download";
+import { cancelSpeech, prefetchPrompts, say, speakPrompt, useVoiceStrings } from "@/voice/speech";
+import { containsWakePhrase, isRtl, markLocaleUnsupported, recognitionLocale } from "@/voice/voiceLang";
+import { watchRecorderForEndOfSpeech } from "@/voice/endOfSpeech";
 
-// Forgiving on purpose - a blind/low-vision patient shouldn't need to hit one
-// exact phrase.
-const WAKE_PHRASES = [
-  "hey doctor",
-  "hey doc",
-  "ok doctor",
-  "okay doctor",
-  "hello doctor",
-  "hey assistant",
-];
-
-function containsWakePhrase(text: string) {
-  const t = (text || "").toLowerCase();
-  return WAKE_PHRASES.some((p) => t.includes(p));
-}
-
-// Single tap starts a fixed-length recording and auto-stops - no second tap
-// required to end it, which is the more reliable interaction for a
-// screen-reader/low-vision user who may not easily re-find the button in
-// time. This window only starts *after* the "Listening..." prompt has
-// finished speaking (see speakAndWait), so the full duration is available
-// for the patient's actual question.
-const RECORD_MS = 10000;
+// Single tap, no second one needed: the recording ends by itself once the
+// patient stops talking (see endOfSpeech.ts) - more reliable for a screen-
+// reader or low-vision user than re-finding the button, and unlike the old
+// fixed 10s window it doesn't cut off a longer question. Tapping still ends
+// it early. Metering feeds that silence detection.
+const RECORDING_OPTIONS = { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true };
 
 const AS_COLLAPSED = "mxp_voice_widget_collapsed";
 
-// Maps a matched voice_query.py intent to which audio endpoint answers it and
-// a human label for the status text. Keep in sync with the backend's
-// voice_query.py _INTENT_KEYWORDS keys.
-const INTENT_CONFIG: Record<
-  string,
-  { url: (api: any, id: string) => string; label: string }
-> = {
-  prescription: {
-    url: (api, id) => api.prescriptionAudioUrl(id),
-    label: "your prescription",
-  },
-  advice: {
-    url: (api, id) => api.adviceAudioUrl(id),
-    label: "the doctor's advice",
-  },
-  symptoms: {
-    url: (api, id) => api.symptomsAudioUrl(id),
-    label: "your symptoms and diagnosis",
-  },
-  summary: {
-    url: (api, id) => api.audioSummaryUrl(id),
-    label: "your visit summary",
+// Maps a matched voice_query.py intent to which audio endpoint answers it
+// and the voice-prompt key labelling it in the status text. Keep in sync
+// with the backend's voice_query.py _INTENT_KEYWORDS keys. "medicine" isn't
+// a keyword intent - the backend returns it when a prescribed medicine is
+// named in the question.
+type Answer = { consultation_id: string | number; medication_id?: string | number };
+const INTENT_CONFIG: Record<string, { url: (a: Answer) => string; label: string }> = {
+  prescription: { url: (a) => api.prescriptionAudioUrl(a.consultation_id), label: "va_label_prescription" },
+  advice: { url: (a) => api.adviceAudioUrl(a.consultation_id), label: "va_label_advice" },
+  symptoms: { url: (a) => api.symptomsAudioUrl(a.consultation_id), label: "va_label_symptoms" },
+  summary: { url: (a) => api.audioSummaryUrl(a.consultation_id), label: "va_label_summary" },
+  medicine: {
+    url: (a) => api.medicineAudioUrl(a.consultation_id, a.medication_id as string | number),
+    label: "va_label_medicine",
   },
 };
 
-// Short spoken UI prompts ("Listening...", not the prescription itself) use
-// expo-speech - instant, no server round-trip. The prescription content
-// itself is always the higher-quality voice served from the backend.
-function speak(text: string) {
-  try {
-    Speech.stop();
-    Speech.speak(text);
-  } catch {}
-}
+// What a question always speaks - warmed on mount so the first one isn't
+// held up by synthesis. The rest load on demand (speakPrompt).
+const ASSISTANT_PROMPTS = ["va_ask_after_beep", "va_one_moment", "va_not_understood"];
 
-// Same as speak(), but resolves once the utterance actually finishes (with a
-// timeout fallback). Used so recording only starts once the "Listening..."
-// prompt is fully spoken.
-function speakAndWait(text: string, maxWaitMs = 3000): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      resolve();
-    };
-    try {
-      Speech.stop();
-      Speech.speak(text, {
-        onDone: finish,
-        onError: finish,
-        onStopped: finish,
-      });
-    } catch {
-      finish();
-      return;
-    }
-    setTimeout(finish, maxWaitMs);
-  });
-}
+// Unique per answer, so a file still being played is never overwritten.
+let answerSeq = 0;
+const answerFileName = () => `voice_answer_${Date.now()}_${answerSeq++}`;
 
-type Phase =
-  | "idle"
-  | "preparing"
-  | "listening"
-  | "processing"
-  | "speaking"
-  | "error";
+type Phase = "idle" | "preparing" | "listening" | "processing" | "speaking" | "error";
 
 export default function VoiceAssistant() {
   const { user } = useAuth();
   const isPatient = user?.role === "patient";
-  const { voiceWakeEnabled, setVoiceWakeEnabled, voiceWakeForced } =
-    useAccessibility();
+  const { voiceWakeEnabled, setVoiceWakeEnabled, voiceWakeForced } = useAccessibility();
   const insets = useSafeAreaInsets();
+  // Rendered on more than one screen (Dashboard, and a consultation pushed
+  // on top of it), and there's one recognizer for the whole app - only the
+  // instance on the screen in front listens.
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  useEffect(() => {
+    focusedRef.current = focused;
+  }, [focused]);
+
+  // Everything this widget says, shows and listens for follows the
+  // patient's profile language; the answers themselves come back from the
+  // backend in that language too.
+  const lang = user?.preferred_language || "en";
+  const t = useVoiceStrings(lang);
+  // Speech started from long-lived recognizer callbacks reads the language
+  // through this ref - their closures can predate it.
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
+  const rtl = isRtl(lang);
+  const dirStyle = { writingDirection: rtl ? "rtl" : "ltr" } as const;
+  useEffect(() => {
+    if (isPatient) prefetchPrompts(lang, ASSISTANT_PROMPTS);
+  }, [isPatient, lang]);
 
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -129,6 +98,7 @@ export default function VoiceAssistant() {
     AsyncStorage.getItem(AS_COLLAPSED).then((v) => {
       if (v != null) setCollapsed(v === "true");
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function setCollapsedPersist(v: boolean) {
     setCollapsed(v);
@@ -136,6 +106,8 @@ export default function VoiceAssistant() {
   }
 
   const [phase, setPhase] = useState<Phase>("idle");
+  // A voice-prompt key, translated at render - long-lived recognizer
+  // callbacks set it, and their `t` can predate the patient's language.
   const [message, setMessage] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [speakingLabel, setSpeakingLabel] = useState("");
@@ -144,12 +116,17 @@ export default function VoiceAssistant() {
   // deliberately paused while a question is being captured/answered.
   const [wakeListening, setWakeListening] = useState(false);
 
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const answerPlayerRef = useRef<AudioPlayer | null>(null);
   const beepPlayerRef = useRef<AudioPlayer | null>(null);
-  const recordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endOfSpeechRef = useRef<(() => void) | null>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeActiveRef = useRef(false);
+  const wakeLocaleRef = useRef("en-US");
+  // Remaining answer URLs still to play - a question naming a date with two
+  // visits on it is answered once per visit, back to back.
+  const queueRef = useRef<string[]>([]);
+  const answerSubRef = useRef<{ remove: () => void } | null>(null);
 
   // Long-lived event handlers (useSpeechRecognitionEvent below) close over
   // stale state otherwise - these mirror the latest values.
@@ -162,14 +139,11 @@ export default function VoiceAssistant() {
     wakeEnabledRef.current = voiceWakeEnabled;
   }, [voiceWakeEnabled]);
 
-  // This component stays mounted on whichever screen renders it (Dashboard,
-  // ConsultationView) but not once that screen is gone - and startListening/
-  // handleRecording/playAnswer are multi-step async flows with several
-  // awaited steps in between. Leaving the screen mid-flow doesn't cancel
+  // This component stays mounted on whichever screen renders it but not
+  // once that screen is gone - and startListening/handleRecording/playNext
+  // are multi-step async flows. Leaving the screen mid-flow doesn't cancel
   // that promise chain, so without this a stale prompt or answer could
-  // still play after the patient had already navigated away. Every speak
-  // call in those flows goes through one of these instead of calling
-  // expo-speech directly.
+  // still play after the patient had already navigated away.
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -177,19 +151,18 @@ export default function VoiceAssistant() {
       mountedRef.current = false;
     };
   }, []);
-  function safeSpeak(text: string) {
-    if (mountedRef.current) speak(text);
+  function safeSay(key: string) {
+    if (mountedRef.current) say(langRef.current, key);
   }
-  function safeSpeakAndWait(text: string, maxWaitMs = 3000) {
-    if (!mountedRef.current) return Promise.resolve();
-    return speakAndWait(text, maxWaitMs);
+  function fail(key: string) {
+    if (!mountedRef.current) return;
+    setPhase("error");
+    setMessage(key);
+    say(langRef.current, key);
   }
 
   function getBeepPlayer() {
-    if (!beepPlayerRef.current)
-      beepPlayerRef.current = createAudioPlayer(
-        require("@/assets/sounds/beep.wav"),
-      );
+    if (!beepPlayerRef.current) beepPlayerRef.current = createAudioPlayer(require("@/assets/sounds/beep.wav"));
     return beepPlayerRef.current;
   }
 
@@ -206,7 +179,7 @@ export default function VoiceAssistant() {
   // =======================================================
 
   async function startListening() {
-    if (phase !== "idle" && phase !== "error") return;
+    if (phaseRef.current !== "idle" && phaseRef.current !== "error") return;
     setMessage(null);
     setTranscript(null);
 
@@ -214,47 +187,35 @@ export default function VoiceAssistant() {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) throw new Error("no-permission");
 
-      // Speak the prompt to completion BEFORE recording starts, so the full
-      // RECORD_MS window is available for the patient's actual question
-      // instead of partly consumed by the prompt itself.
+      // Speak the prompt to completion BEFORE recording starts, so the mic
+      // isn't picking up the prompt itself (or the end-of-speech detector
+      // taking it for the patient).
       setPhase("preparing");
-      await safeSpeakAndWait(
-        "Ask your question after the beep. Tap again to stop.",
-        4000,
-      );
+      await speakPrompt(langRef.current, "va_ask_after_beep", { maxWaitMs: 4000 });
       if (!mountedRef.current) return;
 
+      // iOS refuses to record unless the session allows it.
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
       await playBeep();
       audioRecorder.record();
       setPhase("listening");
-
-      // Safety net for anyone who doesn't tap to stop - finishRecording()
-      // below is the normal path once someone finishes speaking early.
-      recordTimeoutRef.current = setTimeout(finishRecording, RECORD_MS);
+      endOfSpeechRef.current = watchRecorderForEndOfSpeech(audioRecorder, () => finishRecording());
     } catch {
-      if (!mountedRef.current) return;
-      setPhase("error");
-      setMessage("Microphone access is required to ask a question.");
-      safeSpeak("Microphone access is required to ask a question.");
+      fail("va_mic_required");
     }
-  }
-
-  // Tapping the mic again while listening ends the recording immediately,
-  // instead of making the patient wait out the rest of the fixed window.
-  function stopListening() {
-    finishRecording();
   }
 
   async function finishRecording() {
-    if (recordTimeoutRef.current) {
-      clearTimeout(recordTimeoutRef.current);
-      recordTimeoutRef.current = null;
-    }
+    endOfSpeechRef.current?.();
+    endOfSpeechRef.current = null;
     if (!audioRecorder.isRecording) return;
     try {
       await audioRecorder.stop();
     } catch {}
+    // Back to a playback session, so answers come out of the loudspeaker
+    // rather than the earpiece on iOS.
+    setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
     if (!mountedRef.current) return;
     const uri = audioRecorder.uri;
     if (uri) {
@@ -266,15 +227,20 @@ export default function VoiceAssistant() {
 
   // Interrupts the spoken answer mid-playback.
   function stopSpeaking() {
+    queueRef.current = [];
+    answerSubRef.current?.remove();
+    answerSubRef.current = null;
     try {
       answerPlayerRef.current?.pause();
     } catch {}
-    Speech.stop();
+    cancelSpeech();
     setPhase("idle");
   }
 
   function handleMicClick() {
-    if (phase === "listening") stopListening();
+    // Tapping again while listening ends the recording immediately, without
+    // waiting for the end-of-speech silence.
+    if (phase === "listening") finishRecording();
     else if (phase === "speaking") stopSpeaking();
     else startListening();
   }
@@ -286,12 +252,16 @@ export default function VoiceAssistant() {
   async function startWakeListening() {
     if (wakeActiveRef.current) return;
     if (phaseRef.current !== "idle" && phaseRef.current !== "error") return;
+    if (!focusedRef.current || AppState.currentState !== "active") return;
     const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!perm.granted) return;
+    if (!perm.granted || wakeActiveRef.current || !focusedRef.current) return;
     try {
       wakeActiveRef.current = true;
+      // Listens in the patient's language (English "Hey Doctor" still
+      // matches - see voiceLang.ts).
+      wakeLocaleRef.current = recognitionLocale(langRef.current);
       ExpoSpeechRecognitionModule.start({
-        lang: "en-US",
+        lang: wakeLocaleRef.current,
         interimResults: false,
         continuous: true,
       });
@@ -308,10 +278,10 @@ export default function VoiceAssistant() {
     if (wakeActiveRef.current) {
       wakeActiveRef.current = false;
       try {
-        ExpoSpeechRecognitionModule.stop();
+        ExpoSpeechRecognitionModule.abort();
       } catch {}
     }
-    setWakeListening(false);
+    // wakeListening itself goes false on the recognizer's "end" event.
   }
 
   useSpeechRecognitionEvent("start", () => {
@@ -329,35 +299,33 @@ export default function VoiceAssistant() {
 
   useSpeechRecognitionEvent("error", (event) => {
     if (!wakeActiveRef.current) return;
-    if (
-      event.error === "not-allowed" ||
-      event.error === "service-not-allowed"
-    ) {
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
       // Mic access was denied or revoked - stop trying and turn the
-      // preference off, rather than silently failing forever.
+      // preference off, rather than silently failing forever. Updated
+      // synchronously so "end" below can't read a stale "still enabled".
       wakeEnabledRef.current = false;
       setVoiceWakeEnabled(false);
       wakeActiveRef.current = false;
       setPhase("error");
-      setMessage(
-        "Microphone access was denied, so hands-free listening was turned off. You can still tap the microphone to ask a question.",
-      );
+      setMessage("va_mic_denied_handsfree");
+    } else if (event.error === "language-not-supported" && !markLocaleUnsupported(wakeLocaleRef.current)) {
+      wakeEnabledRef.current = false;
+      setVoiceWakeEnabled(false);
     }
-    // 'no-speech' and 'aborted' fire constantly and routinely in continuous
-    // mode during ordinary silence - not real errors.
+    // 'no-speech' and 'aborted' fire routinely in continuous mode during
+    // ordinary silence - not real errors. An unsupported locale restarts
+    // from "end" on the next fallback one.
   });
 
   useSpeechRecognitionEvent("end", () => {
+    // One recognizer app-wide: whatever just ended, nothing is listening.
     setWakeListening(false);
     if (!wakeActiveRef.current) return;
     wakeActiveRef.current = false;
     // Continuous mode still ends on its own periodically (silence timeouts,
-    // OS quirks) - restart automatically unless the patient turned it off or
-    // a question is actively in flight.
-    if (
-      wakeEnabledRef.current &&
-      (phaseRef.current === "idle" || phaseRef.current === "error")
-    ) {
+    // OS quirks) - restart automatically unless the patient turned it off,
+    // a question is actively in flight, or this screen isn't in front.
+    if (wakeEnabledRef.current && (phaseRef.current === "idle" || phaseRef.current === "error")) {
       restartTimerRef.current = setTimeout(startWakeListening, 300);
     }
   });
@@ -367,37 +335,49 @@ export default function VoiceAssistant() {
     setVoiceWakeEnabled(next);
     if (next) {
       setMessage(null);
-      speak("Hands-free mode on. Say Hey Doctor anytime to ask a question.");
+      say(langRef.current, "va_handsfree_on");
       startWakeListening();
     } else {
       stopWakeListening();
     }
   }
 
-  // Resume wake listening once back at idle/error (an answer finished
-  // playing, was interrupted, or a question wasn't understood).
+  // Resume wake listening once back at idle/error (an answer finished,
+  // was interrupted, or a question wasn't understood), and whenever this
+  // screen comes back to the front; release the recognizer when it leaves.
   useEffect(() => {
-    if (
-      voiceWakeEnabled &&
-      !wakeActiveRef.current &&
-      (phase === "idle" || phase === "error")
-    ) {
+    if (!focused) {
+      stopWakeListening();
+      return;
+    }
+    if (voiceWakeEnabled && !wakeActiveRef.current && (phase === "idle" || phase === "error")) {
       startWakeListening();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, voiceWakeEnabled]);
+  }, [phase, voiceWakeEnabled, focused]);
 
-  // Best-effort auto-resume on mount if this was already enabled in a
-  // previous session.
+  // Switch a running recognizer over once the patient's language is known
+  // (or changes).
   useEffect(() => {
-    if (voiceWakeEnabled) startWakeListening();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (wakeActiveRef.current) {
+      stopWakeListening();
+      startWakeListening();
+    }
+  }, [lang]);
+
+  // Back in the foreground: the OS stopped the recognizer while the app was
+  // in the background, so start a fresh one.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") stopWakeListening();
+      else if (wakeEnabledRef.current) restartTimerRef.current = setTimeout(startWakeListening, 300);
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(
     () => () => {
       stopWakeListening();
-      if (recordTimeoutRef.current) clearTimeout(recordTimeoutRef.current);
+      endOfSpeechRef.current?.();
       // No explicit audioRecorder.stop() here on purpose: useAudioRecorder
       // releases its native recorder itself when this component unmounts
       // (which also ends any in-progress recording), and that release runs
@@ -417,13 +397,9 @@ export default function VoiceAssistant() {
   // ANSWER
   // =======================================================
 
-  async function handleRecording(file: {
-    uri: string;
-    name: string;
-    type: string;
-  }) {
+  async function handleRecording(file: { uri: string; name: string; type: string }) {
     setPhase("processing");
-    safeSpeak("One moment.");
+    safeSay("va_one_moment");
 
     try {
       const result = await api.voiceQuery(file);
@@ -431,98 +407,81 @@ export default function VoiceAssistant() {
       setTranscript(result.transcript || null);
 
       const config = result.intent && INTENT_CONFIG[result.intent];
-      if (config && result.consultation_id) {
-        await playAnswer(config, result.consultation_id);
+      const answers: Answer[] = result.answers?.length
+        ? result.answers
+        : result.consultation_id
+          ? [{ consultation_id: result.consultation_id }]
+          : [];
+      if (config && answers.length) {
+        queueRef.current = answers.map((a) => config.url(a));
+        setSpeakingLabel(config.label);
+        await playNext();
+      } else if (result.reason === "no_visit_on_date") {
+        fail("va_no_visit_on_date");
       } else {
-        setPhase("error");
-        const text =
-          "Sorry, I didn't understand, or nothing released yet was found to answer that.";
-        setMessage(text);
-        safeSpeak(text);
+        fail("va_not_understood");
       }
-    } catch (e: any) {
-      if (!mountedRef.current) return;
-      setPhase("error");
-      setMessage(e.message);
-      safeSpeak("Something went wrong. Please try again.");
+    } catch {
+      fail("va_error");
     }
   }
 
-  async function playAnswer(
-    config: { url: (api: any, id: string) => string; label: string },
-    consultationId: string,
-  ) {
+  async function playNext() {
+    const next = queueRef.current.shift();
+    if (!next) {
+      if (mountedRef.current) setPhase("idle");
+      return;
+    }
     try {
-      const file = await downloadAuthedFile(
-        config.url(api, consultationId),
-        `voice_answer_${Date.now()}`,
-        ".mp3",
-      );
+      const file = await downloadAuthedFile(next, answerFileName(), ".mp3");
+      // Stopped, or left the screen, while this one was still downloading.
       if (!mountedRef.current) return;
-      if (!answerPlayerRef.current)
-        answerPlayerRef.current = createAudioPlayer(null);
+      if (phaseRef.current !== "processing" && phaseRef.current !== "speaking") return;
+      if (!answerPlayerRef.current) answerPlayerRef.current = createAudioPlayer(null);
       const player = answerPlayerRef.current;
-      const sub = player.addListener("playbackStatusUpdate", (status: any) => {
+      answerSubRef.current?.remove();
+      const sub = player.addListener("playbackStatusUpdate", (status) => {
         if (status.didJustFinish) {
           sub.remove();
-          if (mountedRef.current) setPhase("idle");
+          answerSubRef.current = null;
+          if (mountedRef.current && phaseRef.current === "speaking") playNext();
         }
       });
-      setSpeakingLabel(config.label);
+      answerSubRef.current = sub;
       setPhase("speaking");
+      phaseRef.current = "speaking";
       player.replace(file.uri);
       player.play();
-    } catch (e: any) {
-      if (!mountedRef.current) return;
-      setPhase("error");
-      setMessage(e.message);
-      safeSpeak("Sorry, that audio could not be played.");
+    } catch {
+      queueRef.current = [];
+      fail("va_audio_failed");
     }
   }
 
   if (!isPatient) return null;
 
-  const busy =
-    phase === "preparing" ||
-    phase === "listening" ||
-    phase === "processing" ||
-    phase === "speaking";
   const micDisabled = phase === "preparing" || phase === "processing";
 
-  const statusText =
-    phase === "idle"
-      ? voiceWakeEnabled
-        ? wakeListening
-          ? '\ud83c\udfa7 Hands-free is on \u2014 say "Hey Doctor" anytime, or tap the microphone'
-          : "\ud83c\udfa7 Hands-free is on \u2014 reconnecting\u2026"
-        : 'Tap the microphone and ask, for example: "What was my prescription?" or "What is the doctor\'s advice?"'
-      : phase === "preparing"
-        ? "Get ready\u2026"
-        : phase === "listening"
-          ? "\ud83c\udf99\ufe0f Listening\u2026 (tap again to stop)"
-          : phase === "processing"
-            ? "\u23f3 Processing your question\u2026"
-            : phase === "speaking"
-              ? `\ud83d\udd0a Reading ${speakingLabel || "your answer"}\u2026 (tap to stop)`
-              : message;
+  const statusText = {
+    idle: voiceWakeEnabled
+      ? `\ud83c\udfa7 ${wakeListening ? t("va_status_handsfree") : t("va_status_reconnecting")}`
+      : t("va_status_idle"),
+    preparing: t("va_status_preparing"),
+    listening: `\ud83c\udf99\ufe0f ${t("va_status_listening")}`,
+    processing: `\u23f3 ${t("va_status_processing")}`,
+    speaking: `\ud83d\udd0a ${t("va_status_speaking", { label: t(speakingLabel || "va_label_answer") })}`,
+    error: message ? t(message) : "",
+  }[phase];
 
   const micLabel =
-    phase === "listening"
-      ? "Stop recording"
-      : phase === "speaking"
-        ? "Stop reading"
-        : "Ask a question about your visit";
+    phase === "listening" ? t("va_mic_stop_recording") : phase === "speaking" ? t("va_mic_stop_reading") : t("va_mic_ask");
 
   return (
     <>
       {collapsed ? (
         <Pressable
           onPress={() => setCollapsedPersist(false)}
-          accessibilityLabel={
-            voiceWakeEnabled
-              ? "Show voice assistant (hands-free is on)"
-              : "Show voice assistant"
-          }
+          accessibilityLabel={voiceWakeEnabled ? `${t("va_show")} — ${t("va_status_handsfree")}` : t("va_show")}
           style={{ position: "absolute", left: 18, bottom: insets.bottom + 18 }}
           className="size-[54px] items-center justify-center rounded-full bg-white shadow-lg"
         >
@@ -543,13 +502,13 @@ export default function VoiceAssistant() {
           }}
           className="rounded-2xl bg-white p-3.5 shadow-lg"
         >
-          <View className="flex-row items-start justify-between gap-2">
-            <Text className="text-sm font-bold text-slate-900">
-              {"\ud83c\udfa4"} Ask about your visit
+          <View className={`items-start justify-between gap-2 ${rtl ? "flex-row-reverse" : "flex-row"}`}>
+            <Text className="flex-1 text-sm font-bold text-slate-900" style={dirStyle}>
+              {"\ud83c\udfa4"} {t("va_title")}
             </Text>
             <Pressable
               onPress={() => setCollapsedPersist(true)}
-              accessibilityLabel="Minimize voice assistant"
+              accessibilityLabel={t("va_minimize")}
               className="size-9 items-center justify-center rounded-lg bg-slate-100"
             >
               <X size={14} color="#475569" />
@@ -575,28 +534,32 @@ export default function VoiceAssistant() {
 
           <Text
             className="text-center text-xs text-slate-500"
+            style={dirStyle}
             accessibilityLiveRegion="polite"
           >
             {statusText}
           </Text>
 
           {transcript && (
-            <Text className="mt-2 text-center text-[11px] text-slate-400">
-              Heard: "{transcript}"
+            <Text className="mt-2 text-center text-[11px] text-slate-400" style={dirStyle}>
+              {t("va_heard", { text: transcript })}
             </Text>
           )}
 
           <Pressable
             onPress={voiceWakeForced ? undefined : toggleWake}
             disabled={voiceWakeForced}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: voiceWakeEnabled, disabled: voiceWakeForced }}
             className={`mt-3 min-h-[44px] items-center justify-center rounded-lg bg-slate-100 px-3 py-2.5 ${voiceWakeForced ? "opacity-75" : ""}`}
           >
-            <Text className="text-center text-xs font-semibold text-slate-700">
+            <Text className="text-center text-xs font-semibold text-slate-700" style={dirStyle}>
+              {"\ud83c\udfa7"}{" "}
               {voiceWakeForced
-                ? "\ud83c\udfa7 Hands-free is always ON for your account"
+                ? t("va_handsfree_forced")
                 : voiceWakeEnabled
-                  ? '\ud83c\udfa7 Hands-free is ON \u2014 say "Hey Doctor" (tap to turn off)'
-                  : '\ud83c\udfa7 Turn on hands-free ("Hey Doctor")'}
+                  ? t("va_handsfree_toggle_on")
+                  : t("va_handsfree_toggle_off")}
             </Text>
           </Pressable>
         </View>

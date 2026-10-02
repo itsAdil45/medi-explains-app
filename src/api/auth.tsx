@@ -13,6 +13,8 @@ import {
   setActiveClinicId,
   setToken,
 } from "./client";
+import { loadDeviceVoiceLang, setDeviceVoiceLang } from "@/voice/voiceLang";
+import { loadPrompts } from "@/voice/speech";
 
 type User = Record<string, any> | null;
 type Clinic = Record<string, any>;
@@ -46,12 +48,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [clinicsReady, setClinicsReady] = useState(false);
 
   useEffect(() => {
+    // Warm the voice UI strings for whoever is likely using this device, so
+    // the sign-in screens and assistant don't render blank labels first.
+    loadDeviceVoiceLang()
+      .then((lang) => loadPrompts(lang))
+      .catch(() => {});
     api
       .me()
       .then(setUser)
       .catch(() => clearToken())
       .finally(() => setLoading(false));
   }, []);
+
+  // Remember the patient's language on this device - after logout it's
+  // what the "Hey Doctor" sign-in speaks and listens in (see voiceLang.ts).
+  // Deliberately kept on logout, unlike the token. Also follows a language
+  // change made on the Profile screen.
+  useEffect(() => {
+    if (user?.role === "patient" && user.preferred_language) {
+      setDeviceVoiceLang(user.preferred_language);
+      loadPrompts(user.preferred_language).catch(() => {});
+    }
+  }, [user?.role, user?.preferred_language]);
 
   const refreshClinics = useCallback(async () => {
     if (!user) {

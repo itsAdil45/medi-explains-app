@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import * as Speech from "expo-speech";
+import { useIsFocused } from "expo-router";
 import { Ticket, X } from "lucide-react-native";
 
 import { api } from "@/api/client";
 import { useAuth } from "@/api/auth";
+import { DIGIT_KEYS, prefetchPrompts, speakDigits, speakPrompt } from "@/voice/speech";
 
 const REFRESH_MS = 10000;
+
+// "Token number 12. It's your turn..." in the patient's language. The
+// doctor's name is left out of the spoken version - it would be read with an
+// English voice mid-sentence - but stays in the notification and card.
+async function announceTurn(lang: string, token: string | number) {
+  await speakPrompt(lang, "q_token", { maxWaitMs: 2000 });
+  await speakDigits(lang, token);
+  await speakPrompt(lang, "q_your_turn");
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -22,21 +32,20 @@ export default function QueueWidget() {
   const { user } = useAuth();
 
   const isPatient = user?.role === "patient";
+  const lang = user?.preferred_language || "en";
+  // Rendered on more than one screen (Dashboard, and a consultation pushed on
+  // top of it) - only the one in front announces, or the turn is called out
+  // and notified twice.
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  useEffect(() => {
+    focusedRef.current = focused;
+  }, [focused]);
 
   const [entry, setEntry] = useState<any>(null);
   const [dismissed, setDismissed] = useState(false);
 
   const lastCalledIdRef = useRef<string | number | null>(null);
-
-  const speak = useCallback((text: string) => {
-    Speech.stop();
-
-    Speech.speak(text, {
-      language: "en-US",
-      rate: 0.9,
-      pitch: 1,
-    });
-  }, []);
 
   const notify = useCallback(async (title: string, body: string) => {
     try {
@@ -82,16 +91,22 @@ export default function QueueWidget() {
 
         setDismissed(false);
 
-        const notificationBody = `Token #${data.token_number} — please go to ${data.doctor_name}'s room.`;
+        if (!focusedRef.current) return;
 
-        const speechText = `Token number ${data.token_number}. It's your turn. Please go to ${data.doctor_name}'s room now.`;
+        const notificationBody = `Token #${data.token_number} — please go to ${data.doctor_name}'s room.`;
 
         await notify("🎟️ Your turn", notificationBody);
 
-        speak(speechText);
+        announceTurn(lang, data.token_number).catch(() => {});
       }
     } catch {}
-  }, [isPatient, notify, speak]);
+  }, [isPatient, notify, lang]);
+
+  // Warm the call-out while still waiting, so it plays the moment they're called.
+  const waiting = Boolean(entry && entry.status !== "called");
+  useEffect(() => {
+    if (waiting) prefetchPrompts(lang, ["q_token", "q_your_turn", ...DIGIT_KEYS]);
+  }, [waiting, lang]);
 
   useEffect(() => {
     if (!isPatient) return;
