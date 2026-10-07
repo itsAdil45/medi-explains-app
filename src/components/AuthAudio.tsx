@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from "expo-audio";
 import type { File } from "expo-file-system";
@@ -48,6 +49,21 @@ export default function AuthAudio({ url }: { url: string }) {
   useEffect(() => {
     playerRef.current = player;
   }, [player]);
+
+  // The screen can also just go out of view without unmounting (another
+  // screen pushed on top, or a tab switch) - pause then too.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        try {
+          playerRef.current?.pause();
+        } catch {
+          // already released
+        }
+      },
+      [],
+    ),
+  );
 
   useEffect(() => {
     let cancelled = false;

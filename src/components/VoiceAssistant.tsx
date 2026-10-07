@@ -192,7 +192,8 @@ export default function VoiceAssistant() {
       // taking it for the patient).
       setPhase("preparing");
       await speakPrompt(langRef.current, "va_ask_after_beep", { maxWaitMs: 4000 });
-      if (!mountedRef.current) return;
+      // Left the screen (or tapped stop) while the prompt was playing.
+      if (!mountedRef.current || !focusedRef.current || (phaseRef.current as Phase) !== "preparing") return;
 
       // iOS refuses to record unless the session allows it.
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
@@ -234,7 +235,22 @@ export default function VoiceAssistant() {
       answerPlayerRef.current?.pause();
     } catch {}
     cancelSpeech();
+    // Synchronously too - an in-flight flow checks phaseRef right after the
+    // speech it was awaiting gets cancelled, before a re-render would.
+    phaseRef.current = "idle";
     setPhase("idle");
+  }
+
+  // Leaving the screen mid-question: drop the recording unsent and stop
+  // anything being spoken.
+  function stopForBlur() {
+    endOfSpeechRef.current?.();
+    endOfSpeechRef.current = null;
+    if (audioRecorder.isRecording) {
+      audioRecorder.stop().catch(() => {});
+      setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
+    }
+    stopSpeaking();
   }
 
   function handleMicClick() {
@@ -348,6 +364,12 @@ export default function VoiceAssistant() {
   useEffect(() => {
     if (!focused) {
       stopWakeListening();
+      // Tab screens stay mounted when the patient moves on, so a question
+      // being recorded or an answer being read out has to be stopped here -
+      // otherwise it carries on over the next screen.
+      if (phaseRef.current !== "idle" && phaseRef.current !== "error") {
+        stopForBlur();
+      }
       return;
     }
     if (voiceWakeEnabled && !wakeActiveRef.current && (phase === "idle" || phase === "error")) {
@@ -435,7 +457,7 @@ export default function VoiceAssistant() {
     try {
       const file = await downloadAuthedFile(next, answerFileName(), ".mp3");
       // Stopped, or left the screen, while this one was still downloading.
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !focusedRef.current) return;
       if (phaseRef.current !== "processing" && phaseRef.current !== "speaking") return;
       if (!answerPlayerRef.current) answerPlayerRef.current = createAudioPlayer(null);
       const player = answerPlayerRef.current;
