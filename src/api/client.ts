@@ -29,7 +29,9 @@ function toFormFile(file: { uri: string }) {
   return new File(file.uri);
 }
 
-const BASE = process.env.EXPO_PUBLIC_API_URL;
+// Trailing slashes dropped - "http://host:8082/" + "/api" made "//api", which
+// the server's /api route doesn't match.
+const BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 if (!BASE) {
   // Fails loudly at startup rather than every request silently hitting
   // "undefined/api/..." - easy to miss otherwise.
