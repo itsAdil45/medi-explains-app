@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link, Redirect, useRouter } from "expo-router";
 import { homeRouteFor } from "@/lib/navigation";
-import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stethoscope, Mail, Lock, Mic } from "lucide-react-native";
 import { useAuth } from "@/api/auth";
@@ -13,7 +19,7 @@ import { isRtl, useDeviceVoiceLang } from "@/voice/voiceLang";
 const DEMO_ACCOUNTS = [
   { email: "doctor@demo.com", role: "Doctor", tone: "green" as const },
   { email: "patient.ur@demo.com", role: "Patient", tone: "red" as const },
-  { email: "receptionist@demo.com", role: "Receptionist", tone: "blue" as const },
+  // { email: "receptionist@demo.com", role: "Receptionist", tone: "blue" as const },
 ];
 
 // No ui/badge.tsx in this project yet (unlike @/components/ui/button etc on
@@ -131,7 +137,11 @@ export default function Login() {
               >
                 {vt("wake_banner")}
               </Text>
-              <VoiceLanguagePicker value={voiceLang} onChange={setVoiceLang} label={vt("ps_language")} />
+              <VoiceLanguagePicker
+                value={voiceLang}
+                onChange={setVoiceLang}
+                label={vt("ps_language")}
+              />
             </View>
           )}
 
@@ -173,7 +183,11 @@ export default function Login() {
               />
             </View>
 
-            {err && <Text className="mt-2 text-xs font-medium text-red-600">{err}</Text>}
+            {err && (
+              <Text className="mt-2 text-xs font-medium text-red-600">
+                {err}
+              </Text>
+            )}
 
             <Pressable
               onPress={submit}
@@ -183,7 +197,9 @@ export default function Login() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text className="text-sm font-semibold text-white">Sign in</Text>
+                <Text className="text-sm font-semibold text-white">
+                  Sign in
+                </Text>
               )}
             </Pressable>
           </View>
@@ -204,8 +220,12 @@ export default function Login() {
                 className="flex-row items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
               >
                 <Text className="text-xs text-slate-700">{d.email}</Text>
-                <View className={`rounded-full px-2 py-0.5 ${TONE_STYLES[d.tone].bg}`}>
-                  <Text className={`text-[11px] font-semibold ${TONE_STYLES[d.tone].text}`}>
+                <View
+                  className={`rounded-full px-2 py-0.5 ${TONE_STYLES[d.tone].bg}`}
+                >
+                  <Text
+                    className={`text-[11px] font-semibold ${TONE_STYLES[d.tone].text}`}
+                  >
                     {d.role}
                   </Text>
                 </View>

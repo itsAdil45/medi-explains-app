@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "AI HealthCare",
-    "slug": "AI HealthCare",
-    "version": "1.0.0",
+    "slug": "medi-explains-app",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mediexplainsapp",
@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.adilshakeel.mediexplainsapp"
+      "package": "com.vibrantlogics.aihealth"
     },
     "web": {
       "output": "static",
